@@ -4,8 +4,6 @@
 
 Music client for Legacy iOS
 
-Now with iPad support!
-
 - Spotify playback
 - Album art
 - Search
