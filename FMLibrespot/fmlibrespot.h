@@ -1,6 +1,6 @@
 //
 //  fmlibrespot.h
-//  FoxMusic
+//  Retrofy
 //
 //  C interface of the Rust librespot bridge (FMLibrespot/). Requires Spotify Premium.
 //  There is one librespot session per process; call fm_librespot_init before anything else.
@@ -24,7 +24,7 @@ enum {
     FM_LIBRESPOT_EVENT_LOGGED_IN = 7,
     /// Spotify Connect login failed, detail is the error message.
     FM_LIBRESPOT_EVENT_LOGIN_FAILED = 8,
-    /// FoxMusic is no longer announced on the network, detail is the reason.
+    /// Retrofy is no longer announced on the network, detail is the reason.
     FM_LIBRESPOT_EVENT_DISCOVERY_STOPPED = 9,
     /// A log message from librespot, detail is the message.
     FM_LIBRESPOT_EVENT_LOG = 10,
@@ -48,7 +48,7 @@ bool fm_librespot_has_login(void);
 /// the main thread.
 bool fm_librespot_restore_session(char **error_out);
 
-/// Announces FoxMusic as a Spotify Connect device on the local network. Picking it in the Spotify app on
+/// Announces Retrofy as a Spotify Connect device on the local network. Picking it in the Spotify app on
 /// another device logs in and sends FM_LIBRESPOT_EVENT_LOGGED_IN or FM_LIBRESPOT_EVENT_LOGIN_FAILED.
 bool fm_librespot_start_discovery(const char *device_name, char **error_out);
 void fm_librespot_stop_discovery(void);
@@ -69,10 +69,17 @@ void fm_librespot_pause(void);
 void fm_librespot_stop(void);
 void fm_librespot_seek(uint32_t position_ms);
 
+/// Lists up to `limit` entries of a playlist (base62 ID) from `offset`, for playlists the Web API won't list:
+/// Spotify only gives development mode apps the tracks of the user's own playlists. Stores JSON shaped like a
+/// Web API playlist items page in json_out, plus "next_offset" (where to continue, or null at the end).
+/// Episodes, local files and tracks that can't be looked up are left out. Blocks, free the JSON with
+/// fm_librespot_free_string.
+bool fm_librespot_playlist_tracks(const char *playlist_id, uint32_t offset, uint32_t limit, char **json_out, char **error_out);
+
 /// Receives the token response JSON (success) or an error message, on a background thread.
 typedef void (*fm_webapi_login_callback)(void *context, bool success, const char *detail);
 
-/// Web API login for FoxMusic's own client ID (PKCE). Serves a page on `port` on the local network with a
+/// Web API login for Retrofy's own client ID (PKCE). Serves a page on `port` on the local network with a
 /// link to Spotify's login; the user pastes the address Spotify redirected to (redirect_uri, which must be
 /// registered for the client ID) back into the page. Stops by itself once logged in.
 bool fm_webapi_login_start(const char *client_id, const char *redirect_uri, uint16_t port, void *context, fm_webapi_login_callback callback, char **error_out);

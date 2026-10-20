@@ -1,6 +1,6 @@
-# FoxMusic
+# Retrofy
 
-![image](foxmusic.png)
+![image](retrofy.png)
 
 Music client for Legacy iOS
 

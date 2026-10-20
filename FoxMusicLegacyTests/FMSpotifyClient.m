@@ -1,6 +1,6 @@
 //
 //  FMSpotifyClient.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 27/06/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
@@ -32,7 +32,7 @@
     self = [super init];
     if (self) {
         // Use your own Spotify app's client ID (FMSpotifyClientID in the Info.plist). The default one belongs
-        // to the original developer, is shared by every FoxMusic install and runs into QUOTA_EXCEEDED.
+        // to the original developer, is shared by every Retrofy install and runs into QUOTA_EXCEEDED.
         NSString *configuredClientId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"FMSpotifyClientID"];
         self.clientId = [configuredClientId isKindOfClass:[NSString class]] && [configuredClientId length] ? configuredClientId : @"756a522d9f1648b89e76e80be654456a";
         

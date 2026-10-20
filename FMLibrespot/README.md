@@ -2,10 +2,11 @@
 
 Rust bridge for playing full Spotify tracks through [librespot](https://github.com/librespot-org/librespot) on iOS 6 (armv7s, iPhone 5). Requires Spotify Premium. Playback only: decrypted audio goes straight to the speaker and is never written to disk.
 
-When FoxMusic is built with `FM_LIBRESPOT=1`:
+When Retrofy is built with `FM_LIBRESPOT=1`:
 
-- **Login** uses Spotify Connect: FoxMusic announces itself on the Wi-Fi (Bonjour), and picking it under Devices in the Spotify app on another phone or computer logs in. librespot saves a reusable login and logs back in with it on later launches.
-- **Web API login** (playlists, search, album art) uses FoxMusic's own client ID (`FMSpotifyClientID` in the Info.plist) with PKCE, so it gets that app's own quota. iOS 6's Safari can't open Spotify's login page, so FoxMusic serves a page on the Wi-Fi (`http://<iPhone's IP>:8080`, `src/webapi_login.rs`): log in from a computer's browser, then paste the `http://127.0.0.1:8888/callback?code=...` address it ends up on back into the page. The redirect URI must be registered for the client ID (change it with `FMSpotifyRedirectURI`). librespot's own login5 tokens aren't used for the Web API: they belong to librespot's shared client ID, whose Web API quota is used up.
+- **Login** uses Spotify Connect: Retrofy announces itself on the Wi-Fi (Bonjour), and picking it under Devices in the Spotify app on another phone or computer logs in. librespot saves a reusable login and logs back in with it on later launches.
+- **Web API login** (playlists, search, album art) uses Retrofy's own client ID (`FMSpotifyClientID` in the Info.plist) with PKCE, so it gets that app's own quota. iOS 6's Safari can't open Spotify's login page, so Retrofy serves a page on the Wi-Fi (`http://<iPhone's IP>:8080`, `src/webapi_login.rs`): log in from a computer's browser, then paste the `http://127.0.0.1:8888/callback?code=...` address it ends up on back into the page. The redirect URI must be registered for the client ID (change it with `FMSpotifyRedirectURI`). librespot's own login5 tokens aren't used for the Web API: they belong to librespot's shared client ID, whose Web API quota is used up.
+- **Other people's playlists**: since March 2026 Spotify only gives development mode apps (like Retrofy's client ID) the tracks of the user's own playlists, other playlists answer 403. Retrofy then lists them through librespot instead (`fm_librespot_playlist_tracks`): the playlist comes from spclient and every track is looked up with librespot's metadata, 10 at a time, so long playlists fill in page by page.
 - **Playback**: the Play button on a track plays the full song through librespot. If that fails, it falls back to the 30 second preview.
 
 The login and the device ID live in `Library/librespot` (`/var/mobile/Library/librespot` for an app in `/Applications`). Delete that folder to log out. No audio is ever cached.
@@ -31,13 +32,13 @@ How it gets around Rust not supporting iOS 6:
 
 ## Code
 
-- `src/player.rs`: the C API in `fmlibrespot.h`: one process-wide session, Spotify Connect discovery, saved login, Web API tokens and playback.
+- `src/player.rs`: the C API in `fmlibrespot.h`: one process-wide session, Spotify Connect discovery, saved login, Web API tokens, playlist listing and playback.
 - `src/http.rs`: a small blocking HTTPS client on rustls (`fm_https_request`), for accounts.spotify.com.
 - `src/audio.rs`: Audio Queue output fed by a half second ring buffer.
 - `src/compat.rs`: the iOS 6 replacements listed above.
 - `src/lib.rs`: `fm_librespot_self_test`, logged at launch.
 
-## Building FoxMusic with it (old Xcode)
+## Building Retrofy with it (old Xcode)
 
 Copy `libfmlibrespot.a` to `FMLibrespot/build/` on the build machine, then add these to the `xcodebuild` command line:
 

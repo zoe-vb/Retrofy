@@ -1,6 +1,6 @@
 //
 //  FMSpotifyPlaylist.h
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 2/07/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
@@ -18,6 +18,8 @@
 @property NSString *name;
 @property FMSpotifyTrackArray *tracks;
 @property NSString *color;
+// The smallest cover image, for thumbnails.
+@property NSURL *imageURL;
 
 - (id)initWithDictionary:(NSDictionary *)dictionary;
 

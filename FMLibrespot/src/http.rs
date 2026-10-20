@@ -123,7 +123,7 @@ pub fn request(
 
     // One request per connection keeps this simple: the response ends when the server closes.
     let mut request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: FoxMusic\r\nAccept: */*\r\nConnection: close\r\nContent-Length: {}\r\n",
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Retrofy\r\nAccept: */*\r\nConnection: close\r\nContent-Length: {}\r\n",
         body.len()
     );
     for (name, value) in headers {

@@ -11,7 +11,6 @@
 #import "FMTrack.h"
 
 #import "FMSpotifyClient.h"
-#import "FMYouTubeClient.h"
 #import "FMLucidaClient.h"
 
 #import "FMMutableURLQueryDictionary.h"

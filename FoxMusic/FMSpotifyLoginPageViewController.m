@@ -1,12 +1,13 @@
 //
 //  FMSpotifyLoginPageViewController.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 27/06/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
 //
 
 #import "FMSpotifyLoginPageViewController.h"
+#import "FMSpotifyLibrary.h"
 
 @implementation FMSpotifyLoginPageViewController
 - (void)viewDidLoad
@@ -17,6 +18,8 @@
     // Both logins happen on another device, the app delegate tells us when they're done.
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(librespotDidLogIn:) name:FMLibrespotDidLogInNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(webAPIDidLogIn:) name:FMWebAPIDidLogInNotification object:nil];
+    // Logging in again (for new permissions) shows the login page.
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(webAPIDidLogIn:) name:FMWebAPIDidLogOutNotification object:nil];
 }
 
 - (void)dealloc

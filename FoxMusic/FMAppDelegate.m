@@ -1,12 +1,14 @@
 //
 //  FMAppDelegate.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 26/06/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
 //
 
 #import "FMAppDelegate.h"
+#import "FMTheme.h"
+#import "FMPlayer.h"
 
 #ifdef FM_LIBRESPOT
 #import "fmlibrespot.h"
@@ -31,6 +33,7 @@ static NSString *const FMDefaultRedirectURI = @"http://127.0.0.1:8888/callback";
 
 NSString *const FMLibrespotDidLogInNotification = @"FMLibrespotDidLogInNotification";
 NSString *const FMWebAPIDidLogInNotification = @"FMWebAPIDidLogInNotification";
+NSString *const FMLibrespotPlaybackEventNotification = @"FMLibrespotPlaybackEventNotification";
 
 @interface FMAppDelegate ()
 - (void)librespotDidSendEvent:(int)event positionMs:(uint32_t)positionMs uri:(NSString *)uri;
@@ -41,6 +44,9 @@ NSString *const FMWebAPIDidLogInNotification = @"FMWebAPIDidLogInNotification";
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
     [self setAlertDelegate:[[FMAlertDelegate alloc] init]];
+    [FMTheme applyAppearance];
+    // Brings back the last track, paused, from the previous launch.
+    [FMPlayer sharedPlayer];
     // Override point for customization after application launch.
     [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"*.spotify.com"];
     [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"accounts.spotify.com"];
@@ -50,7 +56,7 @@ NSString *const FMWebAPIDidLogInNotification = @"FMWebAPIDidLogInNotification";
     char *selfTest = fm_librespot_self_test();
     NSLog(@"librespot self test: %s", selfTest);
     fm_librespot_free_string(selfTest);
-    _librespotQueue = dispatch_queue_create("FoxMusic.librespot", DISPATCH_QUEUE_SERIAL);
+    _librespotQueue = dispatch_queue_create("Retrofy.librespot", DISPATCH_QUEUE_SERIAL);
     
     // Only the reusable login and the device ID live here, librespot never caches audio.
     NSString *libraryDirectory = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) objectAtIndex:0];
@@ -133,6 +139,32 @@ NSString *const FMWebAPIDidLogInNotification = @"FMWebAPIDidLogInNotification";
 - (void)remoteControlReceivedWithEvent:(UIEvent *)event
 {
     @try {
+        // The play queue handles the controls once something was played from a list.
+        FMPlayer *player = [FMPlayer sharedPlayer];
+        if (player.currentTrack) {
+            switch (event.subtype) {
+                case UIEventSubtypeRemoteControlPlay:
+                    [player play];
+                    break;
+                case UIEventSubtypeRemoteControlPause:
+                case UIEventSubtypeRemoteControlStop:
+                    [player pause];
+                    break;
+                case UIEventSubtypeRemoteControlTogglePlayPause:
+                    [player togglePlayPause];
+                    break;
+                case UIEventSubtypeRemoteControlNextTrack:
+                    [player next];
+                    break;
+                case UIEventSubtypeRemoteControlPreviousTrack:
+                    [player previous];
+                    break;
+                default:
+                    break;
+            }
+            return;
+        }
+
         if (self.librespotActive) {
             switch (event.subtype) {
                 case UIEventSubtypeRemoteControlPlay:
@@ -288,6 +320,8 @@ static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, cons
 {
 #ifdef FM_LIBRESPOT
     NSLog(@"librespot event %d at %u ms: %@", event, positionMs, uri);
+    if (event >= FMLibrespotPlaybackEventPlaying && event <= FMLibrespotPlaybackEventUnavailable)
+        [[NSNotificationCenter defaultCenter] postNotificationName:FMLibrespotPlaybackEventNotification object:self userInfo:@{@"event": @(event), @"position": @(positionMs), @"uri": uri ?: @""}];
     switch (event) {
         case FM_LIBRESPOT_EVENT_PLAYING:
             _librespotPlaying = YES;
@@ -326,6 +360,11 @@ static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, cons
 
 - (void)playTrackWithLibrespot:(FMSpotifyTrack *)track completion:(void (^)(NSError *))completion
 {
+    [self playTrackWithLibrespot:track position:0 completion:completion];
+}
+
+- (void)playTrackWithLibrespot:(FMSpotifyTrack *)track position:(NSTimeInterval)position completion:(void (^)(NSError *))completion
+{
 #ifdef FM_LIBRESPOT
     if (!track.identifier) {
         if (completion) completion([NSError errorWithDomain:@"librespot" code:1 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't play track", NSLocalizedDescriptionKey: @"This track has no Spotify ID, local files can't be streamed."}]);
@@ -349,10 +388,10 @@ static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, cons
         NSError *error;
         char *loadError = NULL;
         if (!fm_librespot_has_login()) {
-            // Playback needs the Spotify Connect login, announce FoxMusic so it can be picked right away.
-            fm_librespot_start_discovery("FoxMusic", NULL);
-            error = [NSError errorWithDomain:@"librespot" code:2 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Playback not set up", NSLocalizedDescriptionKey: @"Open Spotify on another phone or computer on the same Wi-Fi, tap the devices button and pick FoxMusic, then press Play again."}];
-        } else if (!fm_librespot_load([uri UTF8String], true, 0, &loadError)) {
+            // Playback needs the Spotify Connect login, announce Retrofy so it can be picked right away.
+            fm_librespot_start_discovery("Retrofy", NULL);
+            error = [NSError errorWithDomain:@"librespot" code:2 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Playback not set up", NSLocalizedDescriptionKey: @"Open Spotify on another phone or computer on the same Wi-Fi, tap the devices button and pick Retrofy, then press Play again."}];
+        } else if (!fm_librespot_load([uri UTF8String], true, (uint32_t)MAX(position * 1000, 0), &loadError)) {
             NSString *message = loadError ? [NSString stringWithUTF8String:loadError] : @"Unknown error";
             fm_librespot_free_string(loadError);
             error = [NSError errorWithDomain:@"librespot" code:3 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't play track", NSLocalizedDescriptionKey: message}];
@@ -372,7 +411,7 @@ static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, cons
 {
 #ifdef FM_LIBRESPOT
     char *discoveryError = NULL;
-    if (fm_librespot_start_discovery("FoxMusic", &discoveryError)) return YES;
+    if (fm_librespot_start_discovery("Retrofy", &discoveryError)) return YES;
     NSString *message = discoveryError ? [NSString stringWithUTF8String:discoveryError] : @"Unknown error";
     fm_librespot_free_string(discoveryError);
     if (error) *error = [NSError errorWithDomain:@"librespot" code:9 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Spotify Connect unavailable", NSLocalizedDescriptionKey: message}];
@@ -485,14 +524,45 @@ static NSString *FMWiFiAddress(void)
 #endif
 }
 
+- (void)loadPlaylistTracksWithLibrespot:(NSString *)playlistID offset:(NSUInteger)offset limit:(NSUInteger)limit completion:(void (^)(NSDictionary *, NSError *))completion
+{
+#ifdef FM_LIBRESPOT
+    // Not on _librespotQueue: looking up every track takes a while and shouldn't hold up playback.
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        char *json = NULL;
+        char *listError = NULL;
+        NSDictionary *page = nil;
+        NSError *error = nil;
+        if (fm_librespot_playlist_tracks([playlistID UTF8String], (uint32_t)offset, (uint32_t)limit, &json, &listError)) {
+            NSData *data = [NSData dataWithBytes:json length:strlen(json)];
+            fm_librespot_free_string(json);
+            page = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+            if (![page isKindOfClass:[NSDictionary class]]) page = nil;
+        } else {
+            NSString *message = listError ? [NSString stringWithUTF8String:listError] : @"Unknown error";
+            fm_librespot_free_string(listError);
+            error = [NSError errorWithDomain:@"librespot" code:10 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't load playlist", NSLocalizedDescriptionKey: message}];
+        }
+        if (!page && !error) error = [NSError errorWithDomain:@"librespot" code:11 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't load playlist", NSLocalizedDescriptionKey: @"librespot sent an unreadable playlist."}];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (completion) completion(page, error);
+        });
+    });
+#else
+    if (completion) completion(nil, [NSError errorWithDomain:@"librespot" code:0 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Not available", NSLocalizedDescriptionKey: @"This build doesn't include librespot."}]);
+#endif
+}
+
+- (void)librespotSeekToPosition:(NSTimeInterval)position
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_seek((uint32_t)MAX(position * 1000, 0));
+#endif
+}
+
 - (FMSpotifyClient *)spotifyClient
 {
     return _spotifyClient ? _spotifyClient : (_spotifyClient = [FMSpotifyClient spotifyClient]);
-}
-
-- (FMYouTubeClient *)youtubeClient
-{
-    return _youtubeClient ? _youtubeClient : (_youtubeClient = [FMYouTubeClient youtubeMusicClient]);
 }
 
 - (FMLucidaClient *)lucidaClient

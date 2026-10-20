@@ -13,8 +13,11 @@ use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
 use librespot::core::config::{DeviceType, SessionConfig};
 use librespot::core::session::Session;
+use librespot::core::spotify_id::SpotifyId;
 use librespot::core::spotify_uri::SpotifyUri;
 use librespot::discovery::Discovery;
+use librespot::metadata::image::{Image, ImageSize};
+use librespot::metadata::{Metadata, Playlist, Track};
 use librespot::playback::audio_backend::{Sink, SinkResult};
 use librespot::playback::config::PlayerConfig;
 use librespot::playback::convert::Converter;
@@ -42,7 +45,7 @@ pub const EVENT_LOGIN_FAILED: i32 = 8;
 pub const EVENT_DISCOVERY_STOPPED: i32 = 9;
 pub const EVENT_LOG: i32 = 10;
 
-/// The context pointer belongs to FoxMusic, which promises it's usable from any thread.
+/// The context pointer belongs to Retrofy, which promises it's usable from any thread.
 #[derive(Clone, Copy)]
 struct Context(*mut c_void);
 unsafe impl Send for Context {}
@@ -84,7 +87,7 @@ struct State {
 
 static STATE: OnceLock<State> = OnceLock::new();
 
-/// Forwards librespot's log messages to FoxMusic (FM_LIBRESPOT_EVENT_LOG), which NSLogs them.
+/// Forwards librespot's log messages to Retrofy (FM_LIBRESPOT_EVENT_LOG), which NSLogs them.
 struct EventLogger {
     events: Events,
 }
@@ -342,7 +345,7 @@ pub unsafe extern "C" fn fm_librespot_restore_session(error_out: *mut *mut c_cha
     }
 }
 
-/// Announces FoxMusic as a Spotify Connect device on the local network. Picking it in the Spotify app on
+/// Announces Retrofy as a Spotify Connect device on the local network. Picking it in the Spotify app on
 /// another device logs in: FM_LIBRESPOT_EVENT_LOGGED_IN (detail: user name) or _LOGIN_FAILED (message).
 #[no_mangle]
 pub unsafe extern "C" fn fm_librespot_start_discovery(device_name: *const c_char, error_out: *mut *mut c_char) -> bool {
@@ -350,7 +353,7 @@ pub unsafe extern "C" fn fm_librespot_start_discovery(device_name: *const c_char
         set_error(error_out, "librespot isn't initialised");
         return false;
     };
-    let name = str_arg(device_name).unwrap_or("FoxMusic").to_string();
+    let name = str_arg(device_name).unwrap_or("Retrofy").to_string();
     let mut discovery_task = state.discovery.lock().unwrap_or_else(|e| e.into_inner());
     if discovery_task.as_ref().is_some_and(|task| !task.is_finished()) {
         return true;
@@ -366,7 +369,7 @@ pub unsafe extern "C" fn fm_librespot_start_discovery(device_name: *const c_char
     let mut discovery = match discovery {
         Ok(discovery) => discovery,
         Err(error) => {
-            set_error(error_out, format!("Couldn't announce FoxMusic on the network: {error}"));
+            set_error(error_out, format!("Couldn't announce Retrofy on the network: {error}"));
             return false;
         }
     };
@@ -517,4 +520,160 @@ pub extern "C" fn fm_librespot_stop() {
 #[no_mangle]
 pub extern "C" fn fm_librespot_seek(position_ms: u32) {
     with_player(|player| player.seek(position_ms));
+}
+
+/// Track metadata requests sent at once while listing a playlist.
+const PLAYLIST_TRACK_REQUESTS: usize = 10;
+
+fn json_string(value: &str) -> String {
+    let mut json = String::with_capacity(value.len() + 2);
+    json.push('"');
+    for c in value.chars() {
+        match c {
+            '"' => json.push_str("\\\""),
+            '\\' => json.push_str("\\\\"),
+            '\n' => json.push_str("\\n"),
+            '\r' => json.push_str("\\r"),
+            '\t' => json.push_str("\\t"),
+            c if (c as u32) < 0x20 => json.push_str(&format!("\\u{:04x}", c as u32)),
+            c => json.push(c),
+        }
+    }
+    json.push('"');
+    json
+}
+
+/// Biggest first, the order the Web API uses (Retrofy takes the first image as the album art).
+fn image_rank(image: &Image) -> (i32, i32) {
+    let size = match image.size {
+        ImageSize::SMALL => 0,
+        ImageSize::DEFAULT => 1,
+        ImageSize::LARGE => 2,
+        _ => 3,
+    };
+    (image.width, size)
+}
+
+/// A track in the Web API's JSON shape: id, name, duration_ms, album (name, images) and artists.
+fn track_json(track: &Track) -> Option<String> {
+    let SpotifyUri::Track { id } = &track.id else { return None };
+    let id = id.to_base62().ok()?;
+
+    let mut covers: Vec<&Image> = track.album.covers.iter().collect();
+    if covers.is_empty() {
+        covers = track.album.cover_group.iter().collect();
+    }
+    covers.sort_by_key(|image| std::cmp::Reverse(image_rank(image)));
+    let images = covers
+        .iter()
+        .filter_map(|image| {
+            let file_id = image.id.to_base16().ok()?;
+            Some(format!(
+                "{{\"url\":{},\"width\":{},\"height\":{}}}",
+                json_string(&format!("https://i.scdn.co/image/{file_id}")),
+                image.width,
+                image.height
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let artists = track
+        .artists
+        .iter()
+        .map(|artist| format!("{{\"name\":{}}}", json_string(&artist.name)))
+        .collect::<Vec<_>>()
+        .join(",");
+
+    Some(format!(
+        "{{\"id\":{},\"name\":{},\"duration_ms\":{},\"album\":{{\"name\":{},\"images\":[{images}]}},\"artists\":[{artists}]}}",
+        json_string(&id),
+        json_string(&track.name),
+        track.duration.max(0),
+        json_string(&track.album.name)
+    ))
+}
+
+/// Lists up to `limit` entries of a playlist starting at `offset`, through librespot. Spotify only gives
+/// development mode Web API apps the tracks of the user's own playlists, librespot can read any playlist.
+/// Stores JSON like a Web API playlist items page in json_out:
+/// {"total": entries, "next_offset": offset to continue from or null, "next": null, "items": [{"track": {...}}]}.
+/// Episodes, local files and tracks that can't be looked up are left out. Blocks, free the JSON with
+/// fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_playlist_tracks(
+    playlist_id: *const c_char,
+    offset: u32,
+    limit: u32,
+    json_out: *mut *mut c_char,
+    error_out: *mut *mut c_char,
+) -> bool {
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let Some(playlist_id) = str_arg(playlist_id) else {
+        set_error(error_out, "Missing playlist ID");
+        return false;
+    };
+    let uri = match SpotifyId::from_base62(playlist_id) {
+        Ok(id) => SpotifyUri::Playlist { user: None, id },
+        Err(_) => {
+            set_error(error_out, format!("Invalid playlist ID: {playlist_id}"));
+            return false;
+        }
+    };
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+
+    let result: Result<String, String> = state.runtime.block_on(async move {
+        let playlist = Playlist::get(&session, &uri).await.map_err(|e| format!("Couldn't load the playlist: {e}"))?;
+        let entries: Vec<SpotifyUri> = playlist.tracks().cloned().collect();
+        let total = entries.len();
+        let start = (offset as usize).min(total);
+        let end = start.saturating_add(limit.max(1) as usize).min(total);
+
+        let mut items = Vec::new();
+        for chunk in entries[start..end].chunks(PLAYLIST_TRACK_REQUESTS) {
+            let requests: Vec<_> = chunk
+                .iter()
+                .filter(|entry| matches!(entry, SpotifyUri::Track { .. }))
+                .cloned()
+                .map(|entry| {
+                    let session = session.clone();
+                    tokio::spawn(async move { Track::get(&session, &entry).await })
+                })
+                .collect();
+            for request in requests {
+                match request.await {
+                    Ok(Ok(track)) => items.extend(track_json(&track).map(|json| format!("{{\"track\":{json}}}"))),
+                    Ok(Err(error)) => log::warn!("Leaving out a playlist track: {error}"),
+                    Err(error) => log::warn!("Playlist track request failed: {error}"),
+                }
+            }
+        }
+
+        let next_offset = if end < total { end.to_string() } else { "null".to_string() };
+        Ok(format!(
+            "{{\"total\":{total},\"next_offset\":{next_offset},\"next\":null,\"items\":[{}]}}",
+            items.join(",")
+        ))
+    });
+
+    match result {
+        Ok(json) => {
+            if !json_out.is_null() {
+                *json_out = CString::new(json).unwrap_or_default().into_raw();
+            }
+            true
+        }
+        Err(error) => {
+            set_error(error_out, error);
+            false
+        }
+    }
 }
