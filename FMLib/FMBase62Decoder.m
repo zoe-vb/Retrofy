@@ -21,14 +21,24 @@
 
 - (NSString *)toHex
 {
-    UInt64 num = [self decodeBase62String:[self string]];
-    NSString *hexString = [NSString stringWithFormat:@"%llX", num];
-    NSMutableString *paddedHexString = [NSMutableString string];
-    NSUInteger remainder = 32 - [hexString length]; // this doesn't work  yet dang it
-    while ([paddedHexString length] < remainder)
-        paddedHexString = [NSMutableString stringWithString:[paddedHexString stringByAppendingString:@"0"]];
-
-    [paddedHexString appendString:hexString];
+    // Spotify IDs are 128 bit numbers, which doesn't fit in a UInt64. Decode into 16 big endian bytes instead.
+    uint8_t bytes[16] = {0};
+    NSString *string = [self string];
+    
+    for (NSUInteger i = 0; i < [string length]; i++) {
+        NSRange range = [[self charset] rangeOfString:[string substringWithRange:NSMakeRange(i, 1)]];
+        if (range.location == NSNotFound) return nil;
+        
+        UInt32 carry = (UInt32)range.location;
+        for (int j = 15; j >= 0; j--) {
+            carry += bytes[j] * 62;
+            bytes[j] = carry & 0xFF;
+            carry >>= 8;
+        }
+    }
+    
+    NSMutableString *hexString = [NSMutableString stringWithCapacity:32];
+    for (int i = 0; i < 16; i++) [hexString appendFormat:@"%02x", bytes[i]];
     return hexString;
 }
 

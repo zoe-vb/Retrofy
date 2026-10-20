@@ -49,7 +49,7 @@
 {
     @try {
         if (![[self playlists] isComplete] && [[self playlists] hasNext]) [[[self appDelegate] spotifyClient] continueArray:[self playlists] withOnSuccess:^(FMSpotifyContinuableArray *playlists){
-            [self.playlists addItems:playlists];
+            // continueArray: already appended the new page to self.playlists
             [[self tableView] reloadData];
              [self loadMorePlaylists];
         } onError:^(NSError *error){

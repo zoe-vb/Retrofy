@@ -13,11 +13,8 @@
 
 - (id)initWithDictionary:(NSDictionary *)dictionary
 {
-    self = [super initWithDictionary:dictionary];
-    
-    if (self) [self addItemsFromDictionary:dictionary];
-    
-    return self;
+    // The superclass initializer already calls addItemsFromDictionary:, which adds the playlists.
+    return [super initWithDictionary:dictionary];
 }
 
 - (FMSpotifyPlaylistArray *)addItemsFromDictionary:(NSDictionary *)dictionary
@@ -25,8 +22,9 @@
     [self setURLsFromDictionary:dictionary];
     
     NSArray *items = [dictionary objectForKey:@"items"];
-    for (NSDictionary *item in items)
-        [[self items] addObject:[FMSpotifyPlaylist playlistFromDictionary:item]];
+    if ([items isKindOfClass:[NSArray class]]) for (NSDictionary *item in items)
+        if ([item isKindOfClass:[NSDictionary class]])
+            [[self items] addObject:[FMSpotifyPlaylist playlistFromDictionary:item]];
     
     return self;
 }

@@ -13,9 +13,9 @@
 
 - (id)initWithDictionary:(NSDictionary *)dictionary
 {
+    // The superclass initializer already calls addItemsFromDictionary:, which adds the tracks.
     self = [super initWithDictionary:dictionary];
     if (self) {
-        [self addItemsFromDictionary:dictionary];
 //        self.href = [NSURL URLWithString:[dictionary objectForKey:@"href"]];
 //        NSArray *items = [dictionary objectForKey:@"items"];
 //        NSMutableArray *tracks = [NSMutableArray arrayWithCapacity:[items count]];
@@ -38,17 +38,25 @@
 
 - (FMSpotifyContinuableArray *)addItemsFromDictionary:(NSDictionary *)dictionary
 {
+    if (![dictionary isKindOfClass:[NSDictionary class]]) return self;
+    
+    // Search results wrap the paging object in "tracks", use its href/next for continuing.
+    NSDictionary *tracksDictinary = [dictionary objectForKey:@"tracks"];
+    if ([tracksDictinary isKindOfClass:[NSDictionary class]]) dictionary = tracksDictinary;
+    
     [super setURLsFromDictionary:dictionary]; // set next and href more safely to avoid exception
     
-    NSDictionary *tracksDictinary = [dictionary objectForKey:@"tracks"];
-    if (tracksDictinary) dictionary = tracksDictinary;
-    
     NSArray *items = [dictionary objectForKey:@"items"];
+    if (![items isKindOfClass:[NSArray class]]) return self;
     NSMutableArray *tracks = [NSMutableArray arrayWithCapacity:[items count]];
     
     for (NSDictionary *item in items) {
+        if (![item isKindOfClass:[NSDictionary class]]) continue;
         NSDictionary *trackDictionary = [item objectForKey:@"track"];
+        if (!trackDictionary) trackDictionary = [item objectForKey:@"item"];
         if (!trackDictionary) trackDictionary = item;
+        // Removed or unavailable tracks come back as "track": null.
+        if (![trackDictionary isKindOfClass:[NSDictionary class]]) continue;
         [tracks addObject:[FMSpotifyTrack trackFromDictionary:trackDictionary]];
     }
     

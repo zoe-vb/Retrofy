@@ -8,12 +8,32 @@
 
 #import "FMAppDelegate.h"
 
+#ifdef FM_LIBRESPOT
+#import "fmlibrespot.h"
+#import <ifaddrs.h>
+#import <arpa/inet.h>
+
+static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, const char *detail);
+static void FMWebAPILoginFinished(void *context, bool success, const char *detail);
+
+// Port of the Web API login page, and the redirect URI registered for FMSpotifyClientID in Spotify's
+// developer dashboard (override with FMSpotifyRedirectURI in the Info.plist).
+static const uint16_t FMWebAPILoginPort = 8080;
+static NSString *const FMDefaultRedirectURI = @"http://127.0.0.1:8888/callback";
+#endif
 
 
 
 @interface NSURLRequest (FoxesAreCool)
 + (BOOL)allowsAnyHTTPSCertificateForHost:(NSString *)host;
 + (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
+@end
+
+NSString *const FMLibrespotDidLogInNotification = @"FMLibrespotDidLogInNotification";
+NSString *const FMWebAPIDidLogInNotification = @"FMWebAPIDidLogInNotification";
+
+@interface FMAppDelegate ()
+- (void)librespotDidSendEvent:(int)event positionMs:(uint32_t)positionMs uri:(NSString *)uri;
 @end
 
 @implementation FMAppDelegate
@@ -24,7 +44,24 @@
     // Override point for customization after application launch.
     [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"*.spotify.com"];
     [NSURLRequest setAllowsAnyHTTPSCertificate:YES forHost:@"accounts.spotify.com"];
+
+#ifdef FM_LIBRESPOT
+    // Check that the Rust runtime works on this device.
+    char *selfTest = fm_librespot_self_test();
+    NSLog(@"librespot self test: %s", selfTest);
+    fm_librespot_free_string(selfTest);
+    _librespotQueue = dispatch_queue_create("FoxMusic.librespot", DISPATCH_QUEUE_SERIAL);
     
+    // Only the reusable login and the device ID live here, librespot never caches audio.
+    NSString *libraryDirectory = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+    NSString *cacheDirectory = [libraryDirectory stringByAppendingPathComponent:@"librespot"];
+    char *initError = NULL;
+    if (!fm_librespot_init([cacheDirectory fileSystemRepresentation], (__bridge void *)self, FMLibrespotEvent, &initError)) {
+        NSLog(@"librespot init failed: %s", initError);
+        fm_librespot_free_string(initError);
+    }
+#endif
+
     return YES;
 }
 
@@ -96,6 +133,25 @@
 - (void)remoteControlReceivedWithEvent:(UIEvent *)event
 {
     @try {
+        if (self.librespotActive) {
+            switch (event.subtype) {
+                case UIEventSubtypeRemoteControlPlay:
+                    [self librespotResume];
+                    break;
+                case UIEventSubtypeRemoteControlPause:
+                case UIEventSubtypeRemoteControlStop:
+                    [self librespotPause];
+                    break;
+                case UIEventSubtypeRemoteControlTogglePlayPause:
+                    if (_librespotPlaying) [self librespotPause];
+                    else [self librespotResume];
+                    break;
+                default:
+                    break;
+            }
+            return;
+        }
+
         AVAudioPlayer *audioPlayer = [self audioPlayer];
         if (!audioPlayer) {
             NSLog(@"No audio player available for remote control");
@@ -207,6 +263,226 @@
         NSLog(@"Exception playing audio: %@", exception.reason);
         [self displayException:exception];
     }
+}
+
+#pragma mark - librespot
+
+#ifdef FM_LIBRESPOT
+// Called on a librespot thread.
+static void FMLibrespotEvent(void *context, int event, uint32_t positionMs, const char *detail)
+{
+    FMAppDelegate *appDelegate = (__bridge FMAppDelegate *)context;
+    NSString *detailString = detail ? [NSString stringWithUTF8String:detail] : @"";
+    if (event == FM_LIBRESPOT_EVENT_LOG) {
+        // Straight from the calling thread, so the order of messages is kept.
+        NSLog(@"librespot: %@", detailString);
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [appDelegate librespotDidSendEvent:event positionMs:positionMs uri:detailString];
+    });
+}
+#endif
+
+- (void)librespotDidSendEvent:(int)event positionMs:(uint32_t)positionMs uri:(NSString *)uri
+{
+#ifdef FM_LIBRESPOT
+    NSLog(@"librespot event %d at %u ms: %@", event, positionMs, uri);
+    switch (event) {
+        case FM_LIBRESPOT_EVENT_PLAYING:
+            _librespotPlaying = YES;
+            break;
+        case FM_LIBRESPOT_EVENT_PAUSED:
+        case FM_LIBRESPOT_EVENT_STOPPED:
+        case FM_LIBRESPOT_EVENT_END_OF_TRACK:
+            _librespotPlaying = NO;
+            break;
+        case FM_LIBRESPOT_EVENT_LOGGED_IN:
+            // One login is enough, stop showing up in other devices' Spotify device lists.
+            [self stopLibrespotDiscovery];
+            [[NSNotificationCenter defaultCenter] postNotificationName:FMLibrespotDidLogInNotification object:self userInfo:@{@"username": uri}];
+            break;
+        case FM_LIBRESPOT_EVENT_LOGIN_FAILED:
+            [self displayError:[NSError errorWithDomain:@"librespot" code:8 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Spotify Connect login failed", NSLocalizedDescriptionKey: uri}]];
+            break;
+        case FM_LIBRESPOT_EVENT_UNAVAILABLE:
+            _librespotPlaying = NO;
+            [self displayError:[NSError errorWithDomain:@"librespot" code:5 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Track unavailable", NSLocalizedDescriptionKey: @"Spotify couldn't play this track. It may not be available in your country."}]];
+            break;
+        default:
+            break;
+    }
+#endif
+}
+
+- (BOOL)librespotAvailable
+{
+#ifdef FM_LIBRESPOT
+    return YES;
+#else
+    return NO;
+#endif
+}
+
+- (void)playTrackWithLibrespot:(FMSpotifyTrack *)track completion:(void (^)(NSError *))completion
+{
+#ifdef FM_LIBRESPOT
+    if (!track.identifier) {
+        if (completion) completion([NSError errorWithDomain:@"librespot" code:1 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't play track", NSLocalizedDescriptionKey: @"This track has no Spotify ID, local files can't be streamed."}]);
+        return;
+    }
+
+    // The previous player has to stop, only one of them can use the audio session.
+    [self.audioPlayer stop];
+    self.audioPlayer = nil;
+
+    NSError *sessionError;
+    AVAudioSession *audioSession = [AVAudioSession sharedInstance];
+    [audioSession setCategory:AVAudioSessionCategoryPlayback error:&sessionError];
+    [audioSession setActive:YES error:&sessionError];
+    [[UIApplication sharedApplication] beginReceivingRemoteControlEvents];
+
+    NSString *uri = [@"spotify:track:" stringByAppendingString:track.identifier];
+
+    dispatch_async(_librespotQueue, ^{
+        // Logs back in with the saved Spotify Connect login first if needed, which blocks.
+        NSError *error;
+        char *loadError = NULL;
+        if (!fm_librespot_has_login()) {
+            // Playback needs the Spotify Connect login, announce FoxMusic so it can be picked right away.
+            fm_librespot_start_discovery("FoxMusic", NULL);
+            error = [NSError errorWithDomain:@"librespot" code:2 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Playback not set up", NSLocalizedDescriptionKey: @"Open Spotify on another phone or computer on the same Wi-Fi, tap the devices button and pick FoxMusic, then press Play again."}];
+        } else if (!fm_librespot_load([uri UTF8String], true, 0, &loadError)) {
+            NSString *message = loadError ? [NSString stringWithUTF8String:loadError] : @"Unknown error";
+            fm_librespot_free_string(loadError);
+            error = [NSError errorWithDomain:@"librespot" code:3 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Can't play track", NSLocalizedDescriptionKey: message}];
+        }
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _librespotActive = !error;
+            if (completion) completion(error);
+        });
+    });
+#else
+    if (completion) completion([NSError errorWithDomain:@"librespot" code:0 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Not available", NSLocalizedDescriptionKey: @"This build doesn't include librespot."}]);
+#endif
+}
+
+- (BOOL)startLibrespotDiscoveryWithError:(NSError **)error
+{
+#ifdef FM_LIBRESPOT
+    char *discoveryError = NULL;
+    if (fm_librespot_start_discovery("FoxMusic", &discoveryError)) return YES;
+    NSString *message = discoveryError ? [NSString stringWithUTF8String:discoveryError] : @"Unknown error";
+    fm_librespot_free_string(discoveryError);
+    if (error) *error = [NSError errorWithDomain:@"librespot" code:9 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Spotify Connect unavailable", NSLocalizedDescriptionKey: message}];
+#endif
+    return NO;
+}
+
+- (void)stopLibrespotDiscovery
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_stop_discovery();
+#endif
+}
+
+- (BOOL)librespotHasLogin
+{
+#ifdef FM_LIBRESPOT
+    return fm_librespot_has_login();
+#else
+    return NO;
+#endif
+}
+
+#ifdef FM_LIBRESPOT
+// Called on the login page's thread with the token response JSON, or an error message.
+static void FMWebAPILoginFinished(void *context, bool success, const char *detail)
+{
+    FMAppDelegate *appDelegate = (__bridge FMAppDelegate *)context;
+    NSData *data = detail ? [NSData dataWithBytes:detail length:strlen(detail)] : nil;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSDictionary *tokenResponse = success && data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if (![tokenResponse isKindOfClass:[NSDictionary class]]) {
+            [appDelegate displayError:[NSError errorWithDomain:@"webapi_login" code:1 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Web API login failed", NSLocalizedDescriptionKey: data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"No response"}]];
+            return;
+        }
+        [appDelegate.spotifyClient setTokenFromDictionary:tokenResponse];
+        NSLog(@"Web API login finished: %@", appDelegate.spotifyClient.token);
+        [[NSNotificationCenter defaultCenter] postNotificationName:FMWebAPIDidLogInNotification object:appDelegate];
+    });
+}
+
+// The iPhone's Wi-Fi IPv4 address, which is where the login page can be reached.
+static NSString *FMWiFiAddress(void)
+{
+    NSString *address = nil;
+    struct ifaddrs *interfaces = NULL;
+    if (getifaddrs(&interfaces) == 0) {
+        for (struct ifaddrs *interface = interfaces; interface; interface = interface->ifa_next) {
+            if (!interface->ifa_addr || interface->ifa_addr->sa_family != AF_INET) continue;
+            if (strcmp(interface->ifa_name, "en0") != 0) continue;
+            char buffer[INET_ADDRSTRLEN];
+            const struct sockaddr_in *ipv4 = (const struct sockaddr_in *)interface->ifa_addr;
+            if (inet_ntop(AF_INET, &ipv4->sin_addr, buffer, sizeof(buffer))) address = [NSString stringWithUTF8String:buffer];
+        }
+        freeifaddrs(interfaces);
+    }
+    return address;
+}
+#endif
+
+- (NSString *)startWebAPILoginWithError:(NSError **)error
+{
+#ifdef FM_LIBRESPOT
+    NSString *address = FMWiFiAddress();
+    if (!address) {
+        if (error) *error = [NSError errorWithDomain:@"webapi_login" code:2 userInfo:@{NSLocalizedFailureReasonErrorKey: @"No Wi-Fi", NSLocalizedDescriptionKey: @"Connect the iPhone to Wi-Fi to log in."}];
+        return nil;
+    }
+    NSString *redirectURI = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"FMSpotifyRedirectURI"];
+    if (![redirectURI isKindOfClass:[NSString class]] || ![redirectURI length]) redirectURI = FMDefaultRedirectURI;
+
+    char *loginError = NULL;
+    if (!fm_webapi_login_start([self.spotifyClient.clientId UTF8String], [redirectURI UTF8String], FMWebAPILoginPort, (__bridge void *)self, FMWebAPILoginFinished, &loginError)) {
+        NSString *message = loginError ? [NSString stringWithUTF8String:loginError] : @"Unknown error";
+        fm_librespot_free_string(loginError);
+        if (error) *error = [NSError errorWithDomain:@"webapi_login" code:3 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Couldn't start the login page", NSLocalizedDescriptionKey: message}];
+        return nil;
+    }
+    return [NSString stringWithFormat:@"http://%@:%u", address, FMWebAPILoginPort];
+#else
+    return nil;
+#endif
+}
+
+- (void)stopWebAPILogin
+{
+#ifdef FM_LIBRESPOT
+    fm_webapi_login_stop();
+#endif
+}
+
+- (void)librespotPause
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_pause();
+#endif
+}
+
+- (void)librespotResume
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_play();
+#endif
+}
+
+- (void)librespotRewind
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_seek(0);
+#endif
 }
 
 - (FMSpotifyClient *)spotifyClient

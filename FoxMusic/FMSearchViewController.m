@@ -47,7 +47,8 @@
     FMSpotifyTrack *track = [[self tracks] itemAtIndex:[indexPath row]];
     @try {
         [[cell textLabel] setText:[track name]];
-        [[cell detailTextLabel] setText:[@([track duration]) stringValue]];
+        int seconds = (int)round([track duration]);
+        [[cell detailTextLabel] setText:[NSString stringWithFormat:@"%d:%02d", seconds / 60, seconds % 60]];
     } @catch (NSException *exception) {
         [_appDelegate displayException:exception];
     }

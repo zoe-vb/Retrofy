@@ -44,12 +44,14 @@
 - (BOOL)tryDeviceAuhorization;
 - (BOOL)tryDeviceAuhorizationWithError:(NSError **)error;
 
+// Stores (and saves) a token response from accounts.spotify.com, e.g. from the Web API login page.
+- (FMSpotifyToken *)setTokenFromDictionary:(NSDictionary *)dictionary;
+
 //- (NSArray *)getUserPlaylists;
 - (void)getUserPlaylistsAndWhenSuccess:(void(^)(FMSpotifyPlaylistArray *playlists))callbackSuccess whenError:(void(^)(NSError *))callbackError;
 
 - (void)continueArray:(FMSpotifyContinuableArray *)continuableArray withOnSuccess:(void(^)(FMSpotifyContinuableArray *))callbackSuccess onError:(void(^)(NSError *))callbackError;
 
-- (NSData *)downloadTrack:(FMSpotifyTrack *)track;
 - (void)downloadTrack:(FMSpotifyTrack *)track callback:(void(^)(NSData *))callback;
 - (void)getTrackDownloadURL:(FMSpotifyTrack *)track callback:(void(^)(NSURL *))callback;
 

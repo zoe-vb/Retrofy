@@ -68,7 +68,8 @@ fastlane/test_output
 iOSInjectionProject/
 
 .DS_Store
-<<<<<<< HEAD
-=======
 **/.DS_Store
->>>>>>> main
+
+# Rust build output
+FMLibrespot/target/
+FMLibrespot/build/

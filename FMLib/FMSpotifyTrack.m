@@ -16,12 +16,13 @@
     if (self) {
         [self setName:[dictionary objectForKey:@"name"]];
         [self setIdentifier:[dictionary objectForKey:@"id"]];
-        [self setDuration:[(NSNumber *)[dictionary objectForKey:@"duration_ms"] doubleValue] / 1000];
+        NSNumber *duration = [dictionary objectForKey:@"duration_ms"];
+        if ([duration isKindOfClass:[NSNumber class]]) [self setDuration:[duration doubleValue] / 1000];
         [self setAlbum:[FMSpotifyAlbum albumFromDictionary:[dictionary objectForKey:@"album"]]];
         
         @try {
             NSString *previewURL = [dictionary objectForKey:@"preview_url"];
-            [self setPreviewURL:[NSURL URLWithString:previewURL]];
+            if ([previewURL isKindOfClass:[NSString class]]) [self setPreviewURL:[NSURL URLWithString:previewURL]];
         }
         @catch (NSException *exception) {
             NSLog(@"Failed to load preview URL");
