@@ -52,13 +52,64 @@
 
 - (void)play:(id)sender
 {
+    // Resuming a paused librespot track.
+    if ([[self appDelegate] librespotActive] && [[[self appDelegate] selectedTrack] isEqual:self.track] && _hasStartedLibrespot) {
+        [[self appDelegate] librespotResume];
+        [self setToolbarPlaying:YES];
+        return;
+    }
+
+    if ([[self appDelegate] librespotAvailable] && self.track) {
+        [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
+        [self updateNowPlayingInfo];
+        [[self appDelegate] playTrackWithLibrespot:self.track completion:^(NSError *error){
+            [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+            if (error) {
+                // Fall back to the 30 second preview.
+                NSLog(@"librespot failed, playing the preview instead: %@", error.localizedDescription);
+                [[self appDelegate] displayError:error];
+                [self playPreview];
+            } else {
+                _hasStartedLibrespot = YES;
+                [self setToolbarPlaying:YES];
+            }
+        }];
+        return;
+    }
+
+    [self playPreview];
+}
+
+- (void)updateNowPlayingInfo
+{
+    NSMutableDictionary *nowPlayingInfo = [NSMutableDictionary dictionary];
+    if (self.albumCoverImage) [nowPlayingInfo setObject:[[MPMediaItemArtwork alloc] initWithImage:self.albumCoverImage] forKey:MPMediaItemPropertyArtwork];
+    [nowPlayingInfo setObject:self.track.name ?: @"Unknown Track" forKey:MPMediaItemPropertyTitle];
+    [nowPlayingInfo setObject:_appDelegate.selectedPlaylist.name ?: self.track.album.name ?: @"Unknown Album" forKey:MPMediaItemPropertyAlbumTitle];
+    if (self.track.duration > 0) [nowPlayingInfo setObject:@(self.track.duration) forKey:MPMediaItemPropertyPlaybackDuration];
+    [[MPNowPlayingInfoCenter defaultCenter] setNowPlayingInfo:nowPlayingInfo];
+}
+
+- (void)setToolbarPlaying:(BOOL)playing
+{
+    NSMutableArray *items = [NSMutableArray arrayWithArray:[[self toolbar] items]];
+    if (items.count > 2) {
+        UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:playing ? UIBarButtonSystemItemPause : UIBarButtonSystemItemPlay target:self action:playing ? @selector(pause:) : @selector(play:)];
+        [item setStyle:UIBarButtonItemStyleBordered];
+        [items replaceObjectAtIndex:2 withObject:item];
+        [[self toolbar] setItems:items animated:YES];
+    }
+}
+
+- (void)playPreview
+{
     @try {
         // Validate track exists
         if (!self.track) {
             NSLog(@"No track selected for playback");
             return;
         }
-        
+
         [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
         
         // Download track with proper error handling
@@ -70,6 +121,7 @@
                     if (!musicData || musicData.length == 0) {
                         NSLog(@"No audio data received");
                         [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+                        [_appDelegate displayError:[NSError errorWithDomain:@"no_audio" code:1003 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Playback failed", NSLocalizedDescriptionKey: @"No audio could be loaded for this track."}]];
                         return;
                     }
                     
@@ -181,6 +233,12 @@
 
 - (void)pause
 {
+    if ([[self appDelegate] librespotActive]) {
+        [[self appDelegate] librespotPause];
+        [self setToolbarPlaying:NO];
+        return;
+    }
+
     @try {
         AVAudioPlayer *audioPlayer = [[self appDelegate] audioPlayer];
         if (audioPlayer) {
@@ -212,6 +270,11 @@
 
 - (void)rewind:(id)sender
 {
+    if ([[self appDelegate] librespotActive]) {
+        [[self appDelegate] librespotRewind];
+        return;
+    }
+
     @try {
         AVAudioPlayer *audioPlayer = [[self appDelegate] audioPlayer];
         if (audioPlayer) {

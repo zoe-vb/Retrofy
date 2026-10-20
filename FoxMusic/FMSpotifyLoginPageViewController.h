@@ -13,6 +13,7 @@
 @interface FMSpotifyLoginPageViewController : FMPageViewController
 {
     BOOL hasShownLoginPage;
+    NSString *currentIdentifier;
 }
 
 - (IBAction)logIn:(id)sender;

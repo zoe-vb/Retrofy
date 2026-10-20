@@ -8,6 +8,7 @@
 
 #import "FMBarVisualizerViewController.h"
 #import <AVFoundation/AVFoundation.h>
+#import "FMAppDelegate.h"
 
 @interface FMBarVisualizerViewController ()
 
@@ -132,23 +133,35 @@
 
 - (void)play:(id)sender
 {
+    // Test song for the visualizer. It isn't part of the repository, so only play it when it was added to the bundle.
     NSString *path = [[NSBundle mainBundle] pathForResource:@"Engage" ofType:@"mp3"];
-    
+    if (!path) {
+        [[[UIAlertView alloc] initWithTitle:@"No test song" message:@"Add an Engage.mp3 to the app's resources to try the visualizer." delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil, nil] show];
+        return;
+    }
+
     NSData *data = [NSData dataWithContentsOfFile:path];
-    
+
     NSError *error;
-    
+
     AVAudioPlayer *audioPlayer = [[AVAudioPlayer alloc] initWithData:data error:&error];
-    
-    
+    if (!audioPlayer) {
+        NSLog(@"Failed to load test song: %@", error.localizedDescription);
+        return;
+    }
+
+    // Keep a strong reference, otherwise ARC frees the player and playback stops right away.
+    FMAppDelegate *appDelegate = (FMAppDelegate *)[[UIApplication sharedApplication] delegate];
+    [appDelegate setAudioPlayer:audioPlayer];
+
     [audioPlayer prepareToPlay];
     [audioPlayer play];
-    
+
     FMWaveForm *waveform = [[FMWaveForm alloc] init];
 
-    AVURLAsset *asset = [AVURLAsset assetWithURL:[NSURL URLWithString:path]];
+    AVURLAsset *asset = [AVURLAsset assetWithURL:[NSURL fileURLWithPath:path]];
     NSData *imageData = [waveform renderPNGAudioPictogramForAsset:asset];
-    
+
 }
 
 @end

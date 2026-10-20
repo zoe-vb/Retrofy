@@ -33,12 +33,14 @@ NSString *const FMSpotifyTokenCreatedOnKey = @"created_on";
 
 - (NSString *)description
 {
-    return [self bearer];
+    // Never print the token itself, descriptions end up in the system log.
+    return [NSString stringWithFormat:@"<FMSpotifyToken valid=%@ refreshable=%@>", self.isValid ? @"yes" : @"no", self.refreshToken ? @"yes" : @"no"];
 }
 
 - (NSString *)bearer
 {
-    return [self.tokenType stringByAppendingFormat:@" %@", self.accessToken];
+    if (!self.accessToken) return nil;
+    return [NSString stringWithFormat:@"%@ %@", self.tokenType ? self.tokenType : @"Bearer", self.accessToken];
 }
 
 - (NSDictionary *)dictionary

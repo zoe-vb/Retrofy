@@ -18,7 +18,9 @@
         self.name = [dictionary objectForKey:@"name"];
 
         self.identifier = [dictionary objectForKey:@"id"];
-        self.tracks = [FMSpotifyTrackArray trackArrayWithDictionary:[dictionary objectForKey:@"tracks"]];
+        NSDictionary *tracks = [dictionary objectForKey:@"tracks"];
+        if (![tracks isKindOfClass:[NSDictionary class]]) tracks = [dictionary objectForKey:@"items"];
+        self.tracks = [FMSpotifyTrackArray trackArrayWithDictionary:[tracks isKindOfClass:[NSDictionary class]] ? tracks : nil];
         
         if (![self.name isKindOfClass:[NSString class]]) self.name = nil;
         if (![self.description isKindOfClass:[NSString class]]) self.description = nil;

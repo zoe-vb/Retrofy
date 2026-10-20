@@ -206,7 +206,13 @@ struct Sample {
     CGSize imageSize = CGSizeMake(sampleCount, imageHeight);
 //    UIGraphicsBeginImageContext(imageSize);
     NSInteger width = sampleCount;
-    CGContextRef context = CGBitmapContextCreate(NULL, width, imageHeight, 8, width * 8, NULL, 0);
+    // iOS only accepts 8 bit RGB bitmaps with an alpha channel and a real color space.
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(NULL, width, imageHeight, 8, width * 4, colorSpace, kCGImageAlphaPremultipliedLast);
+    if (!context) {
+        CGColorSpaceRelease(colorSpace);
+        return nil;
+    }
 //    CGContextRef context = UIGraphicsGetCurrentContext();
 
 //    CGContextSetFillColorWithColor(context, [CIColor blackColor].CGColor);
@@ -219,8 +225,11 @@ struct Sample {
 
 //    CGColorRef leftcolor = [[UIColor whiteColor] CGColor];
 //    CGColorRef rightcolor = [[UIColor redColor] CGColor];
-    CGColorRef leftcolor = CGColorCreateGenericRGB(255, 255, 255, 255);
-    CGColorRef rightcolor = CGColorCreateGenericRGB(255, 0, 0, 255);
+    // CGColorCreateGenericRGB is macOS only, CGColorCreate works on both. Components go from 0 to 1.
+    const CGFloat leftComponents[] = {1, 1, 1, 1};
+    const CGFloat rightComponents[] = {1, 0, 0, 1};
+    CGColorRef leftcolor = CGColorCreate(colorSpace, leftComponents);
+    CGColorRef rightcolor = CGColorCreate(colorSpace, rightComponents);
 
     CGContextFillRect(context, rect);
 
@@ -254,11 +263,16 @@ struct Sample {
     // Create new image
 //    UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
 
-    // Tidy up
-//    UIGraphicsEndImageContext();
-//    CGContextG
+    CGImageRef image = CGBitmapContextCreateImage(context);
 
-    return nil;
+    // Tidy up
+    CGColorRelease(leftcolor);
+    CGColorRelease(rightcolor);
+    CGContextRelease(context);
+    CGColorSpaceRelease(colorSpace);
+
+    // The caller owns the returned image and has to CGImageRelease it.
+    return image;
 }
 
 

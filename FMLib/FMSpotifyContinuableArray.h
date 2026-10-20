@@ -17,7 +17,7 @@
 @property NSURL *next;
 @property NSURL *previous;
 
-@property NSMutableSet *items;
+@property NSMutableArray *items;
 
 @property (readonly, nonatomic) NSUInteger count;
 @property (readonly, nonatomic) BOOL hasNext;

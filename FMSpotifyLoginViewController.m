@@ -21,6 +21,14 @@
     [self getNewUserCode];
 }
 
+- (void)viewDidDisappear:(BOOL)animated
+{
+    [super viewDidDisappear:animated];
+    // The timer retains this controller and would keep requesting new codes after logging in.
+    [activeTimer invalidate];
+    activeTimer = nil;
+}
+
 - (void)didReceiveMemoryWarning
 {
     [super didReceiveMemoryWarning];
@@ -46,29 +54,55 @@
 - (void)getNewUserCode
 {
     if (activeTimer) [activeTimer invalidate];
-    
+
+#ifdef FM_LIBRESPOT
+    // No pair code. Two logins, both done on another device on the same Wi-Fi:
+    // - Web API (playlists, search): a page FoxMusic serves, for FMSpotifyClientID's own quota.
+    // - Playback: picking FoxMusic as a Spotify Connect device, only until librespot has a saved login.
+    // The page controller moves on once FMWebAPIDidLogInNotification arrives.
+    [self setProgressIndeterminate:NO];
+    [self.shareButton setEnabled:NO];
+    [self.remainingTimeView setHidden:YES];
+
+    NSError *loginError;
+    NSString *loginAddress = [self.appDelegate startWebAPILoginWithError:&loginError];
+    [self.userCodeField setText:loginAddress ? loginAddress : @""];
+    if (!loginAddress) {
+        [self.appDelegate displayError:loginError];
+        return;
+    }
+
+    NSString *instructions = [NSString stringWithFormat:@"On a computer on the same Wi-Fi, open %@ and follow the steps.", loginAddress];
+    if (![self.appDelegate librespotHasLogin]) {
+        NSError *discoveryError;
+        if ([self.appDelegate startLibrespotDiscoveryWithError:&discoveryError]) {
+            instructions = [instructions stringByAppendingString:@"\n\nFor playback, also open Spotify on another phone or computer, tap the devices button and pick FoxMusic."];
+        } else {
+            [self.appDelegate displayError:discoveryError];
+        }
+    }
+    [[[UIAlertView alloc] initWithTitle:@"Log in to Spotify" message:instructions delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil, nil] show];
+    return;
+#endif
+
     [self setProgressIndeterminate:YES];
 	
 	NSError *error;
     
     FMSpotifyDeviceAuthorizationInfo *deviceAuthorizationInfo = [self.appDelegate.spotifyClient refreshDeviceAuthorizationInfoWithError:&error];
-    NSLog(@"Erorrs");
-    if (error) {
-//		[appDelegate displayError:error withCompletionHandler:^(){
-//            NSLog(@"Erorrs");
-//            activeTimer = [NSTimer timerWithTimeInterval:1 target:self selector:@selector(updateRemainingTime) userInfo:nil repeats:YES];
-//            
-//            [[NSRunLoop currentRunLoop] addTimer:activeTimer forMode:NSRunLoopCommonModes];
-//        }];
+    if (error || !deviceAuthorizationInfo.userCode) {
+        [self setProgressIndeterminate:NO];
+        [self.userCodeField setText:@""];
+        if (error) [self.appDelegate displayError:error];
 	} else {
         expiresIn = [[deviceAuthorizationInfo expiresIn] doubleValue];
+        if (expiresIn <= 0) expiresIn = 600;
         shareURL = deviceAuthorizationInfo.completeVerificationURL;
         [self.shareButton setEnabled:shareURL != nil];
         [self.remainingTimeView setProgress:1];
         [self setProgressIndeterminate:NO];
         [self.userCodeField setText:deviceAuthorizationInfo.userCode];
         
-        NSLog(@"device code: %@", [deviceAuthorizationInfo deviceCode]);
         NSLog(@"user code: %@", [deviceAuthorizationInfo userCode]);
         NSLog(@"url: %@", [deviceAuthorizationInfo verificationURL]);
         NSLog(@"expires in %lf", expiresIn);

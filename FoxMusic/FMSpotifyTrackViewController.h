@@ -13,6 +13,10 @@
 #import "FMViewController.h"
 
 @interface FMSpotifyTrackViewController : FMViewController
+{
+    // Whether this screen started its track through librespot, so Play resumes instead of reloading.
+    BOOL _hasStartedLibrespot;
+}
 
 @property FMSpotifyTrack *track;
 

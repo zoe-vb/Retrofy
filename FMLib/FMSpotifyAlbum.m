@@ -14,9 +14,15 @@
 {
     self = [super init];
     if (self) {
-        [self setName:[dictionary objectForKey:@"name"]];
-        [self setHref:[NSURL URLWithString:[dictionary objectForKey:@"href"]]];
-        [self setImageURL:[NSURL URLWithString:[[[dictionary objectForKey:@"images"] firstObject] objectForKey:@"url"]]];
+        if (![dictionary isKindOfClass:[NSDictionary class]]) return self;
+        NSString *name = [dictionary objectForKey:@"name"];
+        if ([name isKindOfClass:[NSString class]]) [self setName:name];
+        NSString *href = [dictionary objectForKey:@"href"];
+        if ([href isKindOfClass:[NSString class]]) [self setHref:[NSURL URLWithString:href]];
+        NSArray *images = [dictionary objectForKey:@"images"];
+        NSDictionary *image = [images isKindOfClass:[NSArray class]] && [images count] ? [images objectAtIndex:0] : nil;
+        NSString *imageURL = [image isKindOfClass:[NSDictionary class]] ? [image objectForKey:@"url"] : nil;
+        if ([imageURL isKindOfClass:[NSString class]]) [self setImageURL:[NSURL URLWithString:imageURL]];
     }
     return self;
 }

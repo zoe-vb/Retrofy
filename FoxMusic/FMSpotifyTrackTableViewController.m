@@ -21,16 +21,8 @@
         
         [self setTitle:self.playlist.name];
     
-        [[[self appDelegate] spotifyClient] continueArray:tracks withOnSuccess:^(FMSpotifyContinuableArray *newTracks){
-            NSArray *items = newTracks.items.allObjects;
-            for (FMSpotifyTrack *track in items) {
-                NSLog(@"I GOT A TRACK BRO: %@", track.name);
-            }
-            
-            [[self tableView] reloadData];
-        } onError:^(NSError *error){
-            [[self appDelegate] displayError:error];
-        }];
+        [[self tableView] reloadData];
+        [self loadTracks:tracks];
     }
     @catch (NSException *exception) {
         [[self appDelegate] displayException:exception];
@@ -40,6 +32,26 @@
     }
 }
 
+
+- (void)loadTracks:(FMSpotifyTrackArray *)tracks
+{
+    if (!tracks) return;
+    // Playlists are paged (100 tracks per page), keep loading until every page is there.
+    if ([tracks count] > 0 && ![tracks hasNext]) return;
+    
+    [[[self appDelegate] spotifyClient] continueArray:tracks withOnSuccess:^(FMSpotifyContinuableArray *newTracks){
+        [[self tableView] reloadData];
+        if ([newTracks hasNext] && tracks == self.playlist.tracks) [self loadTracks:tracks];
+    } onError:^(NSError *error){
+        [[self appDelegate] displayError:error];
+    }];
+}
+
+- (NSString *)formatDuration:(NSTimeInterval)duration
+{
+    int seconds = (int)round(duration);
+    return [NSString stringWithFormat:@"%d:%02d", seconds / 60, seconds % 60];
+}
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
 {
@@ -52,7 +64,7 @@
     FMSpotifyTrack *track = [self.playlist.tracks itemAtIndex:indexPath.row];
     @try {
         [cell.textLabel setText:[track name]];
-        [cell.detailTextLabel setText:[@([track duration]) stringValue]];
+        [cell.detailTextLabel setText:[self formatDuration:[track duration]]];
     } @catch (NSException *exception) {
         [_appDelegate displayException:exception];
     }

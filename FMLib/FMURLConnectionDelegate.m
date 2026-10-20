@@ -14,7 +14,7 @@
 {
     self = [super init];
     if (self) {
-        _callback = callback;
+        _callback = [callback copy];
         _data = [NSMutableData data];
     }
     return self;
@@ -28,6 +28,9 @@
         NSURLCredential *cred;
         cred = [NSURLCredential credentialForTrust:trust];
         [challenge.sender useCredential:cred forAuthenticationChallenge:challenge];
+    } else {
+        // Any other challenge has to be answered too, otherwise the connection hangs forever.
+        [challenge.sender continueWithoutCredentialForAuthenticationChallenge:challenge];
     }
 }
 
@@ -39,6 +42,15 @@
         NSDictionary *dictionary = [httpResponse allHeaderFields];
         NSLog(@"%@",[dictionary description]);
     }
+    // A redirect or retry can deliver a new response, only keep the body of the last one.
+    [_data setLength:0];
+}
+
+- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
+{
+    NSLog(@"Connection failed: %@", error.localizedDescription);
+    if (_callback) _callback(nil);
+    _callback = nil;
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
@@ -50,7 +62,8 @@
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
     NSLog(@"Connection finished!");
-    _callback(_data);
+    if (_callback) _callback(_data);
+    _callback = nil;
 }
 
 + (FMURLConnectionDelegate *)urlConnectionDelegate
