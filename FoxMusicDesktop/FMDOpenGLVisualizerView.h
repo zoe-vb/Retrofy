@@ -1,6 +1,6 @@
 //
 //  FMOpenGLVisualizerView.h
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 10/10/25.
 //  Copyright (c) 2025 Lasse Lauwerys. All rights reserved.

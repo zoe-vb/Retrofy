@@ -1,9 +1,9 @@
-//! Web API login for FoxMusic's own Spotify client ID, with the authorization code flow and PKCE.
+//! Web API login for Retrofy's own Spotify client ID, with the authorization code flow and PKCE.
 //!
 //! iOS 6's Safari can't open Spotify's login page (accounts.spotify.com only offers AES-GCM), so the
-//! login happens in a browser on another device: FoxMusic serves a small page on the local network with
+//! login happens in a browser on another device: Retrofy serves a small page on the local network with
 //! a link to Spotify's login. Spotify then redirects to `redirect_uri` (http://127.0.0.1:...), which
-//! won't load on that device, and the user pastes that address back into the page. FoxMusic exchanges
+//! won't load on that device, and the user pastes that address back into the page. Retrofy exchanges
 //! the code for tokens over rustls and hands the token response to the app.
 
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -21,7 +21,9 @@ use sha2::{Digest, Sha256};
 /// Receives the token response JSON (success) or an error message. Called on a background thread.
 pub type FmWebApiLoginCallback = extern "C" fn(context: *mut c_void, success: bool, detail: *const c_char);
 
-const SCOPES: &str = "user-read-private user-read-email playlist-read-private playlist-read-collaborative user-library-read";
+// user-library-modify and playlist-modify-* let Now Playing add to Liked Songs and playlists. Logins from
+// before they were added get asked to log in again when they're needed.
+const SCOPES: &str = "user-read-private user-read-email playlist-read-private playlist-read-collaborative user-library-read user-library-modify playlist-modify-public playlist-modify-private";
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy)]
@@ -88,7 +90,7 @@ impl Login {
         format!(
             r#"<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FoxMusic login</title>
+<title>Retrofy login</title>
 <style>
 body {{ font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 34em; margin: 2em auto; padding: 0 16px; line-height: 1.5; color: #222; background: #fff; }}
 a.button, button {{ display: inline-block; background: #1db954; color: #fff; border: 0; border-radius: 2em; padding: .6em 1.4em; font-size: 1em; text-decoration: none; cursor: pointer; }}
@@ -96,7 +98,7 @@ input {{ width: 100%; box-sizing: border-box; font-size: 1em; padding: .5em; mar
 .message {{ background: #fdecea; padding: .6em .8em; border-radius: .4em; }}
 code {{ background: #f2f2f2; padding: 0 .2em; }}
 </style></head><body>
-<h1>Log FoxMusic in to the Web API</h1>
+<h1>Log Retrofy in to the Web API</h1>
 {message}
 <p><b>1.</b> <a class="button" href="{authorize}" target="_blank" rel="noopener">Log in with Spotify</a></p>
 <p><b>2.</b> After you agree, the browser goes to <code>{redirect}</code>, which won't load. That's expected. Copy the whole address from the address bar.</p>
@@ -217,9 +219,9 @@ fn respond(stream: &mut TcpStream, status: &str, html: &str) {
     let _ = stream.flush();
 }
 
-const DONE_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FoxMusic login</title></head>
+const DONE_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Retrofy login</title></head>
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 34em; margin: 2em auto; padding: 0 16px;">
-<h1>FoxMusic is logged in</h1><p>You can close this page and go back to your iPhone.</p></body></html>"#;
+<h1>Retrofy is logged in</h1><p>You can close this page and go back to your iPhone.</p></body></html>"#;
 
 /// Handles one connection. Returns true once the login is complete.
 fn handle(stream: &mut TcpStream, login: &Login, context: Context, callback: FmWebApiLoginCallback) -> bool {

@@ -7,17 +7,17 @@ edition = "2021"
 crate-type = ["staticlib"]
 
 [dependencies]
-# No audio backend: FoxMusic plays the decoded PCM through an Audio Queue (src/audio.rs). rustls with bundled roots
+# No audio backend: Retrofy plays the decoded PCM through an Audio Queue (src/audio.rs). rustls with bundled roots
 # because iOS 6 neither has the needed Security.framework APIs nor current root certificates.
-# with-dns-sd announces FoxMusic for Spotify Connect login through iOS's own Bonjour (dns_sd.h).
+# with-dns-sd announces Retrofy for Spotify Connect login through iOS's own Bonjour (dns_sd.h).
 librespot = { version = "0.8.0", default-features = false, features = ["rustls-tls-webpki-roots", "with-dns-sd"] }
 futures-util = { version = "0.3", default-features = false }
 log = "0.4"
-# Same versions librespot uses. Lets FoxMusic reach accounts.spotify.com, which only offers AES-GCM
+# Same versions librespot uses. Lets Retrofy reach accounts.spotify.com, which only offers AES-GCM
 # ciphers that iOS 6's Secure Transport doesn't have.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
-# PKCE login for FoxMusic's own client ID (src/webapi_login.rs). All already used by librespot.
+# PKCE login for Retrofy's own client ID (src/webapi_login.rs). All already used by librespot.
 base64 = "0.22"
 rand = "0.9"
 sha2 = "0.10"

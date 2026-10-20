@@ -1,6 +1,6 @@
 //
 //  FMBase62Decoder.h
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 03/12/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.

@@ -361,7 +361,7 @@
                             <constraint firstItem="4QD-lz-ehf" firstAttribute="trailing" secondItem="kZe-x3-Lly" secondAttribute="trailing" type="default" id="zoc-eU-TWl"/>
                         </constraints>
                     </view>
-                    <tabBarItem key="tabBarItem" title="Spotify" image="spotify.png" id="0uo-gD-YrK"/>
+                    <tabBarItem key="tabBarItem" title="Playlists" image="spotify.png" id="0uo-gD-YrK"/>
                     <simulatedStatusBarMetrics key="simulatedStatusBarMetrics" statusBarStyle="blackTranslucent"/>
                     <connections>
                         <outlet property="remainingTimeView" destination="RH1-Yw-foU" id="Rnl-ay-LWI"/>

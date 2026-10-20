@@ -1,4 +1,4 @@
-//! Rust bridge between FoxMusic and librespot, built for armv7s / iOS 6.
+//! Rust bridge between Retrofy and librespot, built for armv7s / iOS 6.
 //! `fm_librespot_self_test` exercises the parts of std librespot leans on: threads,
 //! thread locals, time, heap, sync and formatting. The player API lives in player.rs.
 

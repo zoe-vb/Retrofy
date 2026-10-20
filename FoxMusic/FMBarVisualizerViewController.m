@@ -1,6 +1,6 @@
 //
 //  FMBarVisualizerViewController.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 21/10/25.
 //  Copyright (c) 2025 Lasse Lauwerys. All rights reserved.

@@ -1,6 +1,6 @@
 //
 //  FMSpotifyLoginViewController.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 27/06/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
@@ -9,11 +9,13 @@
 #import "FMSpotifyLoginViewController.h"
 #import "FMAppDelegate.h"
 #import "FMSecondViewController.h"
+#import "FMTheme.h"
 
 @implementation FMSpotifyLoginViewController
 - (void)viewDidLoad
 {
     [super viewDidLoad];
+    [FMTheme styleView:self.view];
     
 //    FMWaveForm *waveForm = [[FMWaveForm alloc] init];
 //    [waveForm renderPNGAudioPictogramForAsset:<#(AVURLAsset *)#>]
@@ -57,8 +59,8 @@
 
 #ifdef FM_LIBRESPOT
     // No pair code. Two logins, both done on another device on the same Wi-Fi:
-    // - Web API (playlists, search): a page FoxMusic serves, for FMSpotifyClientID's own quota.
-    // - Playback: picking FoxMusic as a Spotify Connect device, only until librespot has a saved login.
+    // - Web API (playlists, search): a page Retrofy serves, for FMSpotifyClientID's own quota.
+    // - Playback: picking Retrofy as a Spotify Connect device, only until librespot has a saved login.
     // The page controller moves on once FMWebAPIDidLogInNotification arrives.
     [self setProgressIndeterminate:NO];
     [self.shareButton setEnabled:NO];
@@ -76,7 +78,7 @@
     if (![self.appDelegate librespotHasLogin]) {
         NSError *discoveryError;
         if ([self.appDelegate startLibrespotDiscoveryWithError:&discoveryError]) {
-            instructions = [instructions stringByAppendingString:@"\n\nFor playback, also open Spotify on another phone or computer, tap the devices button and pick FoxMusic."];
+            instructions = [instructions stringByAppendingString:@"\n\nFor playback, also open Spotify on another phone or computer, tap the devices button and pick Retrofy."];
         } else {
             [self.appDelegate displayError:discoveryError];
         }

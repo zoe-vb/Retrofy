@@ -1,6 +1,6 @@
 //
 //  FMSpotifyTrack.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 2/07/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
@@ -19,6 +19,14 @@
         NSNumber *duration = [dictionary objectForKey:@"duration_ms"];
         if ([duration isKindOfClass:[NSNumber class]]) [self setDuration:[duration doubleValue] / 1000];
         [self setAlbum:[FMSpotifyAlbum albumFromDictionary:[dictionary objectForKey:@"album"]]];
+
+        NSArray *artists = [dictionary objectForKey:@"artists"];
+        NSMutableArray *artistNames = [NSMutableArray array];
+        if ([artists isKindOfClass:[NSArray class]]) for (NSDictionary *artist in artists) {
+            NSString *name = [artist isKindOfClass:[NSDictionary class]] ? [artist objectForKey:@"name"] : nil;
+            if ([name isKindOfClass:[NSString class]] && [name length]) [artistNames addObject:name];
+        }
+        [self setArtistNames:artistNames];
         
         @try {
             NSString *previewURL = [dictionary objectForKey:@"preview_url"];
@@ -30,6 +38,11 @@
         
     }
     return self;
+}
+
+- (NSString *)artistName
+{
+    return [self.artistNames count] ? [self.artistNames componentsJoinedByString:@", "] : nil;
 }
 
 - (NSUInteger)hash

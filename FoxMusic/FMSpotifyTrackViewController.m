@@ -1,6 +1,6 @@
 //
 //  FMSpotifyTrackViewController.m
-//  FoxMusic
+//  Retrofy
 //
 //  Created by Lasse Lauwerys on 2/07/24.
 //  Copyright (c) 2024 Lasse Lauwerys. All rights reserved.
@@ -9,8 +9,50 @@
 
 
 #import "FMSpotifyTrackViewController.h"
+#import "FMTheme.h"
 
 @implementation FMSpotifyTrackViewController
+
+- (void)viewDidLoad
+{
+    [super viewDidLoad];
+    self.view.backgroundColor = [FMTheme backgroundColor];
+
+    UIImageView *coverView = self.albumCoverImageView;
+    coverView.backgroundColor = [FMTheme cellColor];
+    coverView.clipsToBounds = YES;
+
+    // Darkens the bottom of the cover so the names stay readable on light artwork.
+    CGFloat shadeHeight = 120;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(1, shadeHeight), NO, 0);
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+    CGFloat components[] = {0, 0, 0, 0.85};
+    CGGradientRef gradient = CGGradientCreateWithColorComponents(colorSpace, components, NULL, 2);
+    CGContextDrawLinearGradient(UIGraphicsGetCurrentContext(), gradient, CGPointZero, CGPointMake(0, shadeHeight), 0);
+    CGGradientRelease(gradient);
+    CGColorSpaceRelease(colorSpace);
+    UIImageView *shadeView = [[UIImageView alloc] initWithImage:UIGraphicsGetImageFromCurrentImageContext()];
+    UIGraphicsEndImageContext();
+    shadeView.frame = CGRectMake(0, coverView.bounds.size.height - shadeHeight, coverView.bounds.size.width, shadeHeight);
+    shadeView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+    [coverView addSubview:shadeView];
+
+    self.trackNameLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, shadeHeight - 58, shadeView.bounds.size.width - 32, 26)];
+    self.trackNameLabel.font = [UIFont boldSystemFontOfSize:20];
+    self.trackNameLabel.textColor = [FMTheme textColor];
+    self.trackNameLabel.shadowColor = [UIColor blackColor];
+    self.trackNameLabel.shadowOffset = CGSizeMake(0, 1);
+
+    self.albumNameLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, shadeHeight - 30, shadeView.bounds.size.width - 32, 18)];
+    self.albumNameLabel.font = [UIFont systemFontOfSize:14];
+    self.albumNameLabel.textColor = [FMTheme secondaryTextColor];
+
+    for (UILabel *label in @[self.trackNameLabel, self.albumNameLabel]) {
+        label.backgroundColor = [UIColor clearColor];
+        label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        [shadeView addSubview:label];
+    }
+}
 
 - (void)viewDidAppear:(BOOL)animated
 {
@@ -48,6 +90,8 @@
     [super viewWillAppear:animated];
     FMSpotifyTrack *track = [[self appDelegate] selectedTrack];
     [self setTitle:track.name];
+    [self.trackNameLabel setText:track.name];
+    [self.albumNameLabel setText:track.album.name];
 }
 
 - (void)play:(id)sender
