@@ -1,6 +1,6 @@
 # FMLibrespot
 
-Rust bridge for playing full Spotify tracks through [librespot](https://github.com/librespot-org/librespot) on iOS 6 (armv7s, iPhone 5). Requires Spotify Premium. Playback only: decrypted audio goes straight to the speaker and is never written to disk.
+Rust bridge for playing full Spotify tracks through [librespot](https://github.com/librespot-org/librespot) on iOS 6 (armv7 and armv7s, iPhone 3GS and newer). Requires Spotify Premium. Playback only: decrypted audio goes straight to the speaker and is never written to disk.
 
 When Retrofy is built with `FM_LIBRESPOT=1`:
 
@@ -22,6 +22,7 @@ Produces `FMLibrespot/build/libfmlibrespot.a`. Needs rustup with nightly and `ru
 How it gets around Rust not supporting iOS 6:
 
 - `armv7s-apple-ios6.json` is rustc's `armv7s-apple-ios` target with `has-thread-local` off, because native thread-locals need iOS 9's dyld. std falls back to pthread keys.
+- `armv7-apple-ios6.json` is the same target for armv7: `cortex-a8` with VFPv3 and NEON instead of `swift` with VFPv4, so it runs on every armv7 iOS 6 device. These have no hardware divide, so 32-bit division calls `__divsi3` and friends in libSystem. `build-ios6.sh` builds both and joins them with `lipo`.
 - std is rebuilt for that target with `-Zbuild-std`.
 - `src/compat.rs` provides functions that std, ring or the compiler use but iOS 6 doesn't have: `clock_gettime` and `CCRandomGenerateBytes` (iOS 10 and 8), `__sincos_stret` and `__exp10` (iOS 7), `__floatuntidf`, `__floatuntisf` and `dirfd`.
 - rustc stamps the objects with iOS 10.0 no matter what, so the old linker may warn "built for newer iOS version". That warning is expected.
@@ -46,7 +47,7 @@ Copy `libfmlibrespot.a` to `FMLibrespot/build/` on the build machine, then add t
 GCC_PREPROCESSOR_DEFINITIONS='$(inherited) FM_LIBRESPOT=1'
 HEADER_SEARCH_PATHS='$(inherited) $(SRCROOT)/FMLibrespot'
 OTHER_LDFLAGS='$(inherited) -L$(SRCROOT)/FMLibrespot/build -lfmlibrespot -framework AudioToolbox'
-ARCHS=armv7s VALID_ARCHS=armv7s ONLY_ACTIVE_ARCH=NO
+ARCHS="armv7 armv7s" VALID_ARCHS="armv7 armv7s" ONLY_ACTIVE_ARCH=NO
 ```
 
-The library only contains armv7s code, so armv7 builds fail to link. If linking fails with an undefined symbol, that function is missing on iOS 6 and needs a replacement in `src/compat.rs`.
+If linking fails with an undefined symbol, that function is missing on iOS 6 and needs a replacement in `src/compat.rs`.

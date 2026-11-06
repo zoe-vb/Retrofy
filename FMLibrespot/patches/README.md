@@ -30,7 +30,7 @@ routines on that target, so linking fails with undefined `_ring_core_0_17_14__*`
 
 - `crypto/curve25519/asm/x25519-asm-arm.S` and `crypto/poly1305/poly1305_arm_asm.S` were ELF only.
   They now also assemble on Apple: `.private_extern` instead of `.hidden`, no `.type`, no `.fpu`
-  (NEON comes from the armv7s target), and the symbols are aliased to their underscored Mach-O names,
+  (NEON comes from the armv7 and armv7s targets), and the symbols are aliased to their underscored Mach-O names,
   which is what ring's prefix header renames on Apple.
 
 The assembly is the same BoringSSL code ring uses on 32-bit Arm Linux, assembled for Mach-O. It hasn't

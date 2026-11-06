@@ -5,7 +5,7 @@
 Music client for Legacy iOS
 
 - iOS 6+
-- armv7s+ (rust in librespot forced this)
+- armv7 and armv7s (iPhone 3GS and newer)
 - Spotify playback
 - Album art
 - Search
