@@ -65,9 +65,14 @@ unsafe impl OpenGLInterface for AppGL {
     }
 
     fn get_proc_address(&self, name: &CStr) -> *const c_void {
-        if name.to_bytes() == b"glBindFramebuffer" {
-            return bind_framebuffer as *const c_void;
-        }
+        // On Apple targets glow asks for desktop OpenGL's vertex array names, OpenGL ES has the OES ones.
+        let name = match name.to_bytes() {
+            b"glBindFramebuffer" => return bind_framebuffer as *const c_void,
+            b"glGenVertexArraysAPPLE" => c"glGenVertexArraysOES",
+            b"glBindVertexArrayAPPLE" => c"glBindVertexArrayOES",
+            b"glDeleteVertexArraysAPPLE" => c"glDeleteVertexArraysOES",
+            _ => name,
+        };
         unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) }
     }
 }
