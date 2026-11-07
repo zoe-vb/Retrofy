@@ -15,6 +15,8 @@
 // Pages fetched up front, so playback doesn't stop after the first few picks.
 static const NSUInteger FMDJStartPages = 3;
 static const NSUInteger FMDJRefillPages = 2;
+// More picks are fetched with this many tracks left, so they're there when the list ends.
+static const NSUInteger FMDJRefillThreshold = 2;
 
 @interface FMDJSession ()
 {
@@ -22,6 +24,11 @@ static const NSUInteger FMDJRefillPages = 2;
     FMSpotifyTrackArray *_upcoming;
     NSString *_nextPageURL;
     BOOL _refilling;
+    // Where the list has got to.
+    NSUInteger _position;
+    // The list ended before more picks arrived.
+    BOOL _waitingForPicks;
+    NSMutableSet *_playedIdentifiers;
     // Track ID to {intro, outro}.
     NSMutableDictionary *_commentary;
 }
@@ -46,6 +53,7 @@ static const NSUInteger FMDJRefillPages = 2;
     self = [super init];
     if (self) {
         _commentary = [NSMutableDictionary dictionary];
+        _playedIdentifiers = [NSMutableSet set];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playbackEvent:) name:FMLibrespotPlaybackEventNotification object:nil];
     }
     return self;
@@ -68,30 +76,44 @@ static const NSUInteger FMDJRefillPages = 2;
     _nextPageURL = nil;
     [_commentary removeAllObjects];
     _upcoming = nil;
+    _waitingForPicks = NO;
+    [_playedIdentifiers removeAllObjects];
     [self fetchPages:FMDJStartPages into:[FMSpotifyTrackArray trackArrayWithDictionary:nil] completion:^(FMSpotifyTrackArray *tracks, NSError *error) {
         self.isStarting = NO;
         if (!tracks.count) {
             [[self appDelegate] displayError:error ?: [NSError errorWithDomain:@"dj" code:1 userInfo:@{NSLocalizedFailureReasonErrorKey: @"DJ unavailable", NSLocalizedDescriptionKey: @"The DJ didn't pick anything."}]];
             return;
         }
-        _queue = tracks;
         self.isActive = YES;
-        [[FMPlayer sharedPlayer] playTracks:_queue startingAtIndex:0 contextName:@"DJ" contextURI:nil];
+        [self playList:tracks];
     }];
+}
+
+// In order and once through, otherwise the end of the list never comes and Connect goes round it again.
+- (void)playList:(FMSpotifyTrackArray *)tracks
+{
+    _queue = tracks;
+    _position = 0;
+    FMPlayer *player = [FMPlayer sharedPlayer];
+    player.shuffle = NO;
+    player.repeatMode = FMPlayerRepeatOff;
+    [[self appDelegate] librespotSetRepeat:FMPlayerRepeatOff];
+    [player playTracks:tracks startingAtIndex:0 contextName:@"DJ" contextURI:nil];
 }
 
 - (void)stop
 {
     self.isActive = NO;
     _upcoming = nil;
+    _waitingForPicks = NO;
 }
 
-- (BOOL)list:(FMSpotifyTrackArray *)list containsIdentifier:(NSString *)identifier
+- (NSUInteger)indexInQueue:(NSString *)identifier
 {
-    for (NSUInteger index = 0; index < list.count; index++) {
-        if ([[[list itemAtIndex:index] identifier] isEqualToString:identifier]) return YES;
+    for (NSUInteger index = 0; index < _queue.count; index++) {
+        if ([[[_queue itemAtIndex:index] identifier] isEqualToString:identifier]) return index;
     }
-    return NO;
+    return NSNotFound;
 }
 
 - (NSString *)commentaryForTrack:(FMSpotifyTrack *)track
@@ -112,37 +134,65 @@ static const NSUInteger FMDJRefillPages = 2;
 {
     if (!self.isActive) return;
     int event = [notification.userInfo[@"event"] intValue];
+    BOOL atLastTrack = _position + 1 >= _queue.count;
 
-    if (event == FMLibrespotPlaybackEventTrackChanged) {
+    // The user playing something else. Not by the track's ID, Spotify can swap a track for another release of it.
+    if (event == FMLibrespotPlaybackEventInactive || ![[[FMPlayer sharedPlayer] contextName] isEqualToString:@"DJ"]) {
+        [self stop];
+    } else if (event == FMLibrespotPlaybackEventTrackChanged) {
         NSData *data = [notification.userInfo[@"uri"] dataUsingEncoding:NSUTF8StringEncoding];
         NSDictionary *track = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *identifier = [track isKindOfClass:[NSDictionary class]] ? [track objectForKey:@"id"] : nil;
-        if (![identifier isKindOfClass:[NSString class]]) return;
-        if (![self list:_queue containsIdentifier:identifier] && ![self list:_upcoming containsIdentifier:identifier]) {
-            // Something else started playing.
-            [self stop];
-        } else if ([[[_queue itemAtIndex:_queue.count - 1] identifier] isEqualToString:identifier]) {
-            [self refill];
+        NSUInteger index = [identifier isKindOfClass:[NSString class]] ? [self indexInQueue:identifier] : NSNotFound;
+        if (identifier) [_playedIdentifiers addObject:identifier];
+
+        // Connect went past the end, into its own suggestions or back to the start.
+        if (atLastTrack && (index == NSNotFound || (index == 0 && _position > 0))) {
+            [self listDidEnd];
+            return;
         }
-    } else if (event == FMLibrespotPlaybackEventEndOfTrack && _upcoming.count) {
-        // The list ran out: carry on with the next picks.
-        NSString *lastURI = [@"spotify:track:" stringByAppendingString:[[_queue itemAtIndex:_queue.count - 1] identifier]];
-        if ([notification.userInfo[@"uri"] isEqualToString:lastURI]) {
-            _queue = _upcoming;
-            _upcoming = nil;
-            [[FMPlayer sharedPlayer] playTracks:_queue startingAtIndex:0 contextName:@"DJ" contextURI:nil];
-        }
+        _position = index != NSNotFound ? index : _position + 1;
+        if (_position + 1 + FMDJRefillThreshold >= _queue.count) [self refill];
+    } else if (atLastTrack && (event == FMLibrespotPlaybackEventEndOfTrack || event == FMLibrespotPlaybackEventStopped)) {
+        [self listDidEnd];
     }
+}
+
+// Carries on with the next picks, as soon as they're there.
+- (void)listDidEnd
+{
+    if (!_upcoming.count) {
+        _waitingForPicks = YES;
+        [self refill];
+        return;
+    }
+    FMSpotifyTrackArray *tracks = _upcoming;
+    _upcoming = nil;
+    _waitingForPicks = NO;
+    [self playList:tracks];
 }
 
 - (void)refill
 {
-    if (_refilling || _upcoming.count || !_nextPageURL) return;
+    if (_refilling || _upcoming.count) return;
     _refilling = YES;
+    // Without a next page, the session has ended and this starts a new one.
     [self fetchPages:FMDJRefillPages into:[FMSpotifyTrackArray trackArrayWithDictionary:nil] completion:^(FMSpotifyTrackArray *tracks, NSError *error) {
         _refilling = NO;
-        if (tracks.count) _upcoming = tracks;
-        else NSLog(@"Couldn't get more DJ picks: %@", error.localizedDescription);
+        if (!self.isActive) return;
+        NSMutableArray *fresh = [NSMutableArray array];
+        for (NSUInteger index = 0; index < tracks.count; index++) {
+            FMSpotifyTrack *track = [tracks itemAtIndex:index];
+            if (![_playedIdentifiers containsObject:track.identifier ?: @""] && [self indexInQueue:track.identifier] == NSNotFound) [fresh addObject:track];
+        }
+        NSLog(@"DJ: %u new picks of %u", (unsigned)fresh.count, (unsigned)tracks.count);
+        if (!fresh.count) {
+            NSLog(@"Couldn't get more DJ picks: %@", error.localizedDescription);
+            return;
+        }
+        tracks.items = fresh;
+        _upcoming = tracks;
+        if (_waitingForPicks) [self listDidEnd];
     }];
 }
 

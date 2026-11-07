@@ -679,8 +679,23 @@ component TracksPage {
 }
 
 component MiniPlayer {
+    // Under the bar, which follows the finger. Swiping left skips the track, right goes back.
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up) {
+                if (self.mouse-x - self.pressed-x < -60px) {
+                    Bridge.action("next", 0, "");
+                } else if (self.mouse-x - self.pressed-x > 60px) {
+                    Bridge.action("previous", 0, "");
+                } else {
+                    Bridge.now-open = true;
+                }
+            }
+        }
+    }
+
     Rectangle {
-        x: 8px;
+        x: 8px + (touch.pressed ? touch.mouse-x - touch.pressed-x : 0);
         y: 4px;
         width: parent.width - 16px;
         height: parent.height - 8px;
@@ -689,10 +704,6 @@ component MiniPlayer {
         background: Bridge.now-tint.alpha > 0 ? Bridge.now-tint.mix(#000000, 0.55) : Theme.raised;
         drop-shadow-blur: 10px;
         drop-shadow-color: #00000080;
-
-        TouchArea {
-            clicked => { Bridge.now-open = true; }
-        }
 
         HorizontalLayout {
             padding: 6px;
