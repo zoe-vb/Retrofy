@@ -2,8 +2,9 @@
 //  FMPlayer.m
 //  FoxMusic
 //
-//  The play queue behind the Now Playing screen: plays a list of tracks one after another through the
-//  app delegate (librespot, or the 30 second preview), with shuffle, repeat and seeking.
+//  What the Now Playing screen shows and controls. Full tracks play on Retrofy's Spotify Connect device, so
+//  Spotify runs the queue, and other devices can take over or cast to it. Without a Connect login, this keeps
+//  its own queue of 30 second previews.
 //
 
 #import "FMPlayer.h"
@@ -30,6 +31,8 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
     NSUInteger _failuresInARow;
     // The last librespot error shown, so a queue doesn't show the same alert for every track.
     NSString *_lastErrorMessage;
+    // The full track couldn't start, which the rest of the queue would run into too.
+    BOOL _fullTrackFailed;
 
     BOOL _usingLibrespot;
     BOOL _librespotPlaying;
@@ -39,6 +42,8 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
     // Where the current track starts when it's played, while it isn't loaded (after relaunching).
     NSTimeInterval _resumePosition;
+    // What Spotify plays from, nil for a plain list of tracks.
+    NSString *_contextURI;
 }
 
 @property (readwrite) FMSpotifyTrackArray *tracks;
@@ -143,7 +148,9 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
     NSString *albumTitle = track.album.name ?: self.contextName;
     if (albumTitle) [nowPlayingInfo setObject:albumTitle forKey:MPMediaItemPropertyAlbumTitle];
     if (track.artistName) [nowPlayingInfo setObject:track.artistName forKey:MPMediaItemPropertyArtist];
+#ifndef FM_IOS4
     if (self.coverImage) [nowPlayingInfo setObject:[[MPMediaItemArtwork alloc] initWithImage:self.coverImage] forKey:MPMediaItemPropertyArtwork];
+#endif
     if (self.duration > 0) [nowPlayingInfo setObject:@(self.duration) forKey:MPMediaItemPropertyPlaybackDuration];
     [nowPlayingInfo setObject:@(self.position) forKey:MPNowPlayingInfoPropertyElapsedPlaybackTime];
     [nowPlayingInfo setObject:@(self.isPlaying ? 1.0 : 0.0) forKey:MPNowPlayingInfoPropertyPlaybackRate];
@@ -152,11 +159,12 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
 #pragma mark - Queue
 
-- (void)playTracks:(FMSpotifyTrackArray *)tracks startingAtIndex:(NSUInteger)index contextName:(NSString *)contextName
+- (void)playTracks:(FMSpotifyTrackArray *)tracks startingAtIndex:(NSUInteger)index contextName:(NSString *)contextName contextURI:(NSString *)contextURI
 {
     if (index >= tracks.count) return;
     self.tracks = tracks;
     self.contextName = contextName;
+    _contextURI = contextURI;
     _index = index;
     _failuresInARow = 0;
     _lastErrorMessage = nil;
@@ -209,6 +217,7 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 - (void)setShuffle:(BOOL)shuffle
 {
     _shuffle = shuffle;
+    if (_usingLibrespot) [[self appDelegate] librespotSetShuffle:shuffle];
     if (shuffle) [self reshuffle];
     else _shuffleOrder = nil;
     [self stateDidChange];
@@ -217,6 +226,8 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 - (void)setRepeatMode:(FMPlayerRepeatMode)repeatMode
 {
     _repeatMode = repeatMode;
+    // FMPlayerRepeatMode has Connect's values.
+    if (_usingLibrespot) [[self appDelegate] librespotSetRepeat:repeatMode];
     [self stateDidChange];
 }
 
@@ -309,10 +320,11 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
         return;
     }
 
-    [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
-    [[self appDelegate] playTrackWithLibrespot:track position:startPosition completion:^(NSError *error){
-        if (generation != _generation) return;
+    void (^completion)(NSError *) = ^(NSError *error){
         [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+        // Connect's own events can get here first.
+        if (generation != _generation) return;
+        _fullTrackFailed = error != nil;
         if (error) {
             // Fall back to the 30 second preview.
             NSLog(@"librespot failed, playing the preview instead: %@", error.localizedDescription);
@@ -322,10 +334,25 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
             return;
         }
         _usingLibrespot = YES;
-        self.isLoading = NO;
-        [self setLibrespotPosition:startPosition playing:YES];
+        [self setLibrespotPosition:startPosition playing:NO];
         [self stateDidChange];
-    }];
+    };
+
+    [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
+    if (_contextURI) {
+        NSString *startURI = track.identifier ? [@"spotify:track:" stringByAppendingString:track.identifier] : nil;
+        [[self appDelegate] playContext:_contextURI tracks:nil startURI:startURI startIndex:0 shuffle:self.shuffle position:startPosition completion:completion];
+        return;
+    }
+    NSMutableArray *trackURIs = [NSMutableArray array];
+    NSUInteger startIndex = 0;
+    for (NSUInteger index = 0; index < self.tracks.count; index++) {
+        NSString *identifier = [[self.tracks itemAtIndex:index] identifier];
+        if (!identifier) continue;
+        if (index == _index) startIndex = trackURIs.count;
+        [trackURIs addObject:[@"spotify:track:" stringByAppendingString:identifier]];
+    }
+    [[self appDelegate] playContext:nil tracks:trackURIs startURI:nil startIndex:startIndex shuffle:self.shuffle position:startPosition completion:completion];
 }
 
 - (void)playPreviewOfTrack:(FMSpotifyTrack *)track generation:(NSUInteger)generation startPosition:(NSTimeInterval)startPosition
@@ -340,6 +367,12 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
             NSError *error;
             AVAudioPlayer *audioPlayer = musicData.length ? [[AVAudioPlayer alloc] initWithData:musicData error:&error] : nil;
             if (!audioPlayer) {
+                // Without Connect set up every track ends here. Stay on this one: that error was already
+                // shown, and skipping through the queue with an alert per track helps nobody.
+                if (_fullTrackFailed) {
+                    [self stopAtCurrentTrack];
+                    return;
+                }
                 [[self appDelegate] displayError:error ?: [NSError errorWithDomain:@"no_audio" code:1003 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Playback failed", NSLocalizedDescriptionKey: @"No audio could be loaded for this track."}]];
                 [self trackFailed];
                 return;
@@ -422,6 +455,10 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
 - (void)next
 {
+    if (_usingLibrespot) {
+        [[self appDelegate] librespotNext];
+        return;
+    }
     if (!self.tracks.count) return;
     _failuresInARow = 0;
     if ([self advance]) [self startCurrentTrack];
@@ -430,6 +467,10 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
 - (void)previous
 {
+    if (_usingLibrespot) {
+        [[self appDelegate] librespotPrevious];
+        return;
+    }
     if (!self.tracks.count) return;
     NSUInteger position = [self orderPosition];
     if (self.position > FMPlayerRestartThreshold || (position == 0 && self.repeatMode != FMPlayerRepeatAll)) {
@@ -502,6 +543,7 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
                                                                                  @"shuffle": @(self.shuffle),
                                                                                  @"repeat": @(self.repeatMode)}];
     if (self.contextName) [state setObject:self.contextName forKey:@"context"];
+    if (_contextURI) [state setObject:_contextURI forKey:@"contextURI"];
     [[NSUserDefaults standardUserDefaults] setObject:state forKey:FMPlayerSavedStateKey];
 }
 
@@ -519,6 +561,7 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
     self.tracks = tracks;
     self.contextName = [state objectForKey:@"context"];
+    _contextURI = [state objectForKey:@"contextURI"];
     _index = index;
     _shuffle = [[state objectForKey:@"shuffle"] boolValue];
     if (_shuffle) [self reshuffle];
@@ -531,35 +574,92 @@ static const NSUInteger FMPlayerMaximumSavedTracks = 500;
 
 #pragma mark - Events
 
+// Takes in a track Spotify Connect started: the next one, or one another device cast here.
+- (void)connectTrackChanged:(NSString *)json
+{
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *dictionary = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![dictionary isKindOfClass:[NSDictionary class]]) return;
+    FMSpotifyTrack *track = [FMSpotifyTrack trackFromDictionary:dictionary];
+
+    NSUInteger index = NSNotFound;
+    for (NSUInteger candidate = 0; candidate < self.tracks.count; candidate++) {
+        if ([[self.tracks itemAtIndex:candidate] isEqual:track]) {
+            index = candidate;
+            break;
+        }
+    }
+    if (index == NSNotFound) {
+        // Not from this list, keep it as the one track that gets saved and restored.
+        self.tracks = [FMSpotifyTrackArray trackArrayWithDictionary:@{@"items": @[@{@"track": dictionary}]}];
+        self.contextName = nil;
+        _contextURI = nil;
+        index = 0;
+    }
+    _index = index;
+    self.currentTrack = track;
+    [[self appDelegate] setSelectedTrack:track];
+    [self loadCoverForTrack:track];
+}
+
 - (void)librespotPlaybackEvent:(NSNotification *)notification
 {
-    if (!_usingLibrespot && !self.isLoading) return;
-    NSString *uri = notification.userInfo[@"uri"];
-    NSString *currentURI = self.currentTrack.identifier ? [@"spotify:track:" stringByAppendingString:self.currentTrack.identifier] : nil;
-    // Events about the track that was playing before this one.
-    if (uri.length && currentURI && ![uri isEqualToString:currentURI]) return;
-
     NSTimeInterval position = [notification.userInfo[@"position"] doubleValue] / 1000;
-    switch ([notification.userInfo[@"event"] intValue]) {
+    int event = [notification.userInfo[@"event"] intValue];
+
+    switch (event) {
+        case FMLibrespotPlaybackEventTrackChanged:
+            _generation++;
+            _usingLibrespot = YES;
+            _resumePosition = 0;
+            self.isPreview = NO;
+            [self setLibrespotPosition:0 playing:_librespotPlaying];
+            [self connectTrackChanged:notification.userInfo[@"uri"]];
+            break;
+        case FMLibrespotPlaybackEventLoading:
+            _usingLibrespot = YES;
+            self.isLoading = YES;
+            break;
         case FMLibrespotPlaybackEventPlaying:
+            // Might have started on another device, which still needs the audio set up here.
+            if (!_usingLibrespot || [self previewPlayer]) [[self appDelegate] prepareAudioSession];
+            _usingLibrespot = YES;
             _failuresInARow = 0;
+            _resumePosition = 0;
+            self.isLoading = NO;
+            self.isPreview = NO;
             [self setLibrespotPosition:position playing:YES];
-            [self stateDidChange];
             break;
         case FMLibrespotPlaybackEventPaused:
-        case FMLibrespotPlaybackEventStopped:
+            self.isLoading = NO;
             [self setLibrespotPosition:position playing:NO];
-            [self stateDidChange];
             break;
-        case FMLibrespotPlaybackEventEndOfTrack:
-            if (_usingLibrespot) [self trackDidEnd];
+        case FMLibrespotPlaybackEventPosition:
+            [self setLibrespotPosition:position playing:_librespotPlaying];
             break;
+        case FMLibrespotPlaybackEventStopped:
         case FMLibrespotPlaybackEventUnavailable:
-            [self trackFailed];
+            self.isLoading = NO;
+            [self setLibrespotPosition:self.position playing:NO];
+            break;
+        case FMLibrespotPlaybackEventInactive:
+            // Another device took over. Play picks up here again, from this position.
+            if (!_usingLibrespot) return;
+            _resumePosition = self.position;
+            _usingLibrespot = NO;
+            _librespotPlaying = NO;
+            self.isLoading = NO;
+            break;
+        case FMLibrespotPlaybackEventShuffle:
+            _shuffle = position > 0;
+            break;
+        case FMLibrespotPlaybackEventRepeat:
+            _repeatMode = (FMPlayerRepeatMode)[notification.userInfo[@"position"] intValue];
             break;
         default:
-            break;
+            return;
     }
+    [self stateDidChange];
 }
 
 - (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag

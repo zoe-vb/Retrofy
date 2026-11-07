@@ -135,7 +135,9 @@ static NSMutableSet *FMLibrespotLoadingPlaylists;
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [_appDelegate setSelectedTrack:[self.playlist.tracks itemAtIndex:indexPath.row]];
-    [[FMPlayer sharedPlayer] playTracks:self.playlist.tracks startingAtIndex:indexPath.row contextName:self.playlist.name];
+    BOOL likedSongs = [self.playlist.identifier isEqualToString:@"liked-songs"];
+    NSString *contextURI = likedSongs ? @"spotify:collection" : [@"spotify:playlist:" stringByAppendingString:self.playlist.identifier];
+    [[FMPlayer sharedPlayer] playTracks:self.playlist.tracks startingAtIndex:indexPath.row contextName:self.playlist.name contextURI:contextURI];
     [self showNowPlaying:nil];
 }
 

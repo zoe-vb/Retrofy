@@ -1,10 +1,13 @@
-//! Web API login for Retrofy's own Spotify client ID, with the authorization code flow and PKCE.
+//! Web API login with the user's own Spotify client ID, with the authorization code flow and PKCE.
 //!
 //! iOS 6's Safari can't open Spotify's login page (accounts.spotify.com only offers AES-GCM), so the
 //! login happens in a browser on another device: Retrofy serves a small page on the local network with
 //! a link to Spotify's login. Spotify then redirects to `redirect_uri` (http://127.0.0.1:...), which
 //! won't load on that device, and the user pastes that address back into the page. Retrofy exchanges
 //! the code for tokens over rustls and hands the token response to the app.
+//!
+//! Everyone brings their own Spotify app, a development mode app only allows 5 people. The client ID is
+//! entered on the same page, a computer is a lot easier to paste it into than an old iPhone.
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::io::{Read, Write};
@@ -25,6 +28,7 @@ pub type FmWebApiLoginCallback = extern "C" fn(context: *mut c_void, success: bo
 // before they were added get asked to log in again when they're needed.
 const SCOPES: &str = "user-read-private user-read-email playlist-read-private playlist-read-collaborative user-library-read user-library-modify playlist-modify-public playlist-modify-private";
 const MAX_REQUEST_BYTES: usize = 64 * 1024;
+const CLIENT_ID_LENGTH: usize = 32;
 
 #[derive(Clone, Copy)]
 struct Context(*mut c_void);
@@ -83,10 +87,36 @@ impl Login {
         .unwrap_or_default()
     }
 
+    /// Takes the client ID from the form. Returns an error message if it doesn't look like one.
+    fn set_client_id(&mut self, client_id: &str) -> Result<(), String> {
+        let client_id = client_id.trim().to_ascii_lowercase();
+        if client_id.len() != CLIENT_ID_LENGTH || !client_id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err("A client ID is 32 letters and numbers. Copy it from your app's page in the dashboard.".into());
+        }
+        self.client_id = client_id;
+        Ok(())
+    }
+
     fn page(&self, message: Option<&str>) -> String {
         let message = message
             .map(|text| format!("<p class=\"message\">{}</p>", escape_html(text)))
             .unwrap_or_default();
+        // Spotify's login needs the client ID, so the rest of the steps wait for it.
+        let login_steps = if self.client_id.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<p><b>3.</b> <a class="button" href="{authorize}" target="_blank" rel="noopener">Log in with Spotify</a></p>
+<p><b>4.</b> After you agree, the browser goes to <code>{redirect}</code>, which won't load. That's expected. Copy the whole address from the address bar.</p>
+<form method="post" action="/code">
+<p><b>5.</b> Paste it here:</p>
+<input name="url" placeholder="{redirect}?code=..." autocomplete="off" autofocus>
+<button type="submit">Finish login</button>
+</form>"#,
+                authorize = escape_html(&self.authorize_url()),
+                redirect = escape_html(&self.redirect_uri),
+            )
+        };
         format!(
             r#"<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -100,22 +130,26 @@ code {{ background: #f2f2f2; padding: 0 .2em; }}
 </style></head><body>
 <h1>Log Retrofy in to the Web API</h1>
 {message}
-<p><b>1.</b> <a class="button" href="{authorize}" target="_blank" rel="noopener">Log in with Spotify</a></p>
-<p><b>2.</b> After you agree, the browser goes to <code>{redirect}</code>, which won't load. That's expected. Copy the whole address from the address bar.</p>
-<form method="post" action="/code">
-<p><b>3.</b> Paste it here:</p>
-<input name="url" placeholder="{redirect}?code=..." autocomplete="off" autofocus>
-<button type="submit">Finish login</button>
+<p><b>1.</b> In the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard</a>, create an app with Web API selected and add <code>{redirect}</code> as a redirect URI. The account needs Spotify Premium.</p>
+<form method="post" action="/client">
+<p><b>2.</b> Paste the app's Client ID here:</p>
+<input name="client_id" value="{client_id}" placeholder="32 letters and numbers" autocomplete="off" spellcheck="false">
+<button type="submit">Save client ID</button>
 </form>
+{login_steps}
 </body></html>"#,
             message = message,
-            authorize = escape_html(&self.authorize_url()),
             redirect = escape_html(&self.redirect_uri),
+            client_id = escape_html(&self.client_id),
+            login_steps = login_steps,
         )
     }
 
     /// Takes the pasted redirect address (or just the code) and exchanges it for tokens.
     fn finish(&self, pasted: &str) -> Result<String, String> {
+        if self.client_id.is_empty() {
+            return Err("Enter your client ID first.".into());
+        }
         let pasted = pasted.trim();
         let (code, state) = match url::Url::parse(pasted) {
             Ok(redirected) => {
@@ -153,7 +187,11 @@ code {{ background: #f2f2f2; padding: 0 .2em; }}
         )?;
         let text = String::from_utf8_lossy(&response.body).into_owned();
         if response.status == 200 && text.contains("refresh_token") {
-            Ok(text)
+            // The app has to keep the client ID: refreshing the token needs it.
+            match text.trim_start().strip_prefix('{') {
+                Some(fields) => Ok(format!("{{\"client_id\":\"{}\",{fields}", self.client_id)),
+                None => Err(format!("Spotify sent an unreadable login: {text}")),
+            }
         } else {
             Err(format!("Spotify refused the login (HTTP {}): {}", response.status, text))
         }
@@ -223,19 +261,32 @@ const DONE_PAGE: &str = r#"<!doctype html><html><head><meta charset="utf-8"><met
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 34em; margin: 2em auto; padding: 0 16px;">
 <h1>Retrofy is logged in</h1><p>You can close this page and go back to your iPhone.</p></body></html>"#;
 
+fn form_value(body: &[u8], name: &str) -> String {
+    url::form_urlencoded::parse(body)
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.into_owned())
+        .unwrap_or_default()
+}
+
 /// Handles one connection. Returns true once the login is complete.
-fn handle(stream: &mut TcpStream, login: &Login, context: Context, callback: FmWebApiLoginCallback) -> bool {
+fn handle(stream: &mut TcpStream, login: &mut Login, context: Context, callback: FmWebApiLoginCallback) -> bool {
     let Some(request) = read_request(stream) else { return false };
     match (request.method.as_str(), request.path.split('?').next().unwrap_or("")) {
         ("GET", "/") => {
             respond(stream, "200 OK", &login.page(None));
             false
         }
+        ("POST", "/client") => {
+            let client_id = form_value(&request.body, "client_id");
+            let page = match login.set_client_id(&client_id) {
+                Ok(()) => login.page(None),
+                Err(message) => login.page(Some(&message)),
+            };
+            respond(stream, "200 OK", &page);
+            false
+        }
         ("POST", "/code") => {
-            let pasted = url::form_urlencoded::parse(&request.body)
-                .find(|(key, _)| key == "url")
-                .map(|(_, value)| value.into_owned())
-                .unwrap_or_default();
+            let pasted = form_value(&request.body, "url");
             match login.finish(&pasted) {
                 Ok(token_json) => {
                     respond(stream, "200 OK", DONE_PAGE);
@@ -258,8 +309,8 @@ fn handle(stream: &mut TcpStream, login: &Login, context: Context, callback: FmW
 }
 
 /// Serves the login page on `port` on all network interfaces until the login is done or
-/// fm_webapi_login_stop is called. `redirect_uri` must be registered for the client ID in Spotify's
-/// developer dashboard.
+/// fm_webapi_login_stop is called. `client_id` fills in the page's client ID field and may be NULL.
+/// `redirect_uri` must be registered for the client ID in Spotify's developer dashboard.
 #[no_mangle]
 pub unsafe extern "C" fn fm_webapi_login_start(
     client_id: *const c_char,
@@ -275,12 +326,15 @@ pub unsafe extern "C" fn fm_webapi_login_start(
         }
         false
     };
-    let (Some(client_id), Some(redirect_uri)) = (
-        (!client_id.is_null()).then(|| CStr::from_ptr(client_id).to_string_lossy().into_owned()),
-        (!redirect_uri.is_null()).then(|| CStr::from_ptr(redirect_uri).to_string_lossy().into_owned()),
-    ) else {
-        return fail("Missing client ID or redirect URI".into());
+    let client_id = if client_id.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(client_id).to_string_lossy().into_owned()
     };
+    if redirect_uri.is_null() {
+        return fail("Missing redirect URI".into());
+    }
+    let redirect_uri = CStr::from_ptr(redirect_uri).to_string_lossy().into_owned();
 
     let mut server = SERVER.lock().unwrap_or_else(|e| e.into_inner());
     if server.as_ref().is_some_and(|server| !server.stop.load(Ordering::SeqCst)) {
@@ -294,7 +348,7 @@ pub unsafe extern "C" fn fm_webapi_login_start(
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = stop.clone();
     let context = Context(context);
-    let login = Login::new(client_id, redirect_uri);
+    let mut login = Login::new(client_id, redirect_uri);
 
     thread::Builder::new()
         .name("fm-webapi-login".into())
@@ -304,7 +358,7 @@ pub unsafe extern "C" fn fm_webapi_login_start(
                     break;
                 }
                 let Ok(mut stream) = stream else { continue };
-                if handle(&mut stream, &login, context, callback) {
+                if handle(&mut stream, &mut login, context, callback) {
                     thread_stop.store(true, Ordering::SeqCst);
                     break;
                 }

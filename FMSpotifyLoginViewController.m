@@ -12,6 +12,46 @@
 #import "FMTheme.h"
 
 @implementation FMSpotifyLoginViewController
+
+#ifdef FM_IOS4
+// Comes from a storyboard on iOS 5 and later.
+- (void)loadView
+{
+    UIView *view = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]];
+    view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    CGFloat width = view.bounds.size.width;
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 40, width - 40, 44)];
+    titleLabel.text = @"Retrofy";
+    titleLabel.font = [UIFont systemFontOfSize:36];
+    titleLabel.textAlignment = UITextAlignmentCenter;
+    [view addSubview:titleLabel];
+
+    UILabel *instructionLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 96, width - 40, 40)];
+    instructionLabel.text = @"On a computer on the same Wi-Fi, open this address:";
+    instructionLabel.font = [UIFont systemFontOfSize:15];
+    instructionLabel.numberOfLines = 2;
+    instructionLabel.textAlignment = UITextAlignmentCenter;
+    [view addSubview:instructionLabel];
+
+    UITextField *addressField = [[UITextField alloc] initWithFrame:CGRectMake(20, 146, width - 40, 34)];
+    addressField.borderStyle = UITextBorderStyleRoundedRect;
+    addressField.font = [UIFont systemFontOfSize:17];
+    addressField.textAlignment = UITextAlignmentCenter;
+    addressField.contentVerticalAlignment = UIControlContentVerticalAlignmentCenter;
+    addressField.enabled = NO;
+    [view addSubview:addressField];
+    self.userCodeField = addressField;
+
+    UIButton *refreshButton = [UIButton buttonWithType:UIButtonTypeRoundedRect];
+    refreshButton.frame = CGRectMake(20, 196, width - 40, 40);
+    [refreshButton setTitle:@"Try Again" forState:UIControlStateNormal];
+    [refreshButton addTarget:self action:@selector(refreshCode:) forControlEvents:UIControlEventTouchUpInside];
+    [view addSubview:refreshButton];
+
+    self.view = view;
+}
+#endif
 - (void)viewDidLoad
 {
     [super viewDidLoad];
@@ -49,8 +89,11 @@
 
 - (void)shareCode:(id)sender
 {
+#ifndef FM_IOS4
     if (shareURL) [self presentViewController:[[UIActivityViewController alloc] initWithActivityItems:@[shareURL] applicationActivities:nil] animated:YES completion:nil];
-    else [[[UIAlertView alloc] initWithTitle:@"Error" message:@"The URL was not found." delegate:nil cancelButtonTitle:@"Shut up!" otherButtonTitles:nil, nil] show];
+    else
+#endif
+    [[[UIAlertView alloc] initWithTitle:@"Error" message:@"The URL was not found." delegate:nil cancelButtonTitle:@"Shut up!" otherButtonTitles:nil, nil] show];
 }
 
 - (void)getNewUserCode
@@ -59,7 +102,7 @@
 
 #ifdef FM_LIBRESPOT
     // No pair code. Two logins, both done on another device on the same Wi-Fi:
-    // - Web API (playlists, search): a page Retrofy serves, for FMSpotifyClientID's own quota.
+    // - Web API (playlists, search): a page Retrofy serves, where the user also enters their own client ID.
     // - Playback: picking Retrofy as a Spotify Connect device, only until librespot has a saved login.
     // The page controller moves on once FMWebAPIDidLogInNotification arrives.
     [self setProgressIndeterminate:NO];
@@ -77,11 +120,8 @@
     NSString *instructions = [NSString stringWithFormat:@"On a computer on the same Wi-Fi, open %@ and follow the steps.", loginAddress];
     if (![self.appDelegate librespotHasLogin]) {
         NSError *discoveryError;
-        if ([self.appDelegate startLibrespotDiscoveryWithError:&discoveryError]) {
-            instructions = [instructions stringByAppendingString:@"\n\nFor playback, also open Spotify on another phone or computer, tap the devices button and pick Retrofy."];
-        } else {
-            [self.appDelegate displayError:discoveryError];
-        }
+        // The app delegate explains this step once the login on the page is done.
+        if (![self.appDelegate startLibrespotDiscoveryWithError:&discoveryError]) [self.appDelegate displayError:discoveryError];
     }
     [[[UIAlertView alloc] initWithTitle:@"Log in to Spotify" message:instructions delegate:nil cancelButtonTitle:@"OK" otherButtonTitles:nil, nil] show];
     return;

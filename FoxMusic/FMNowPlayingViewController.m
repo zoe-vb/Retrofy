@@ -106,6 +106,19 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     return image;
 }
 
+#ifdef FM_IOS4
+// Slider tint colors need iOS 5.
+- (UIImage *)sliderTrackImageWithColor:(UIColor *)color
+{
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(5, 4), NO, 0);
+    [color setFill];
+    UIRectFill(CGRectMake(0, 0, 5, 4));
+    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return [image stretchableImageWithLeftCapWidth:2 topCapHeight:0];
+}
+#endif
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
@@ -141,8 +154,13 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
 
     _slider = [[UISlider alloc] init];
     [_slider setThumbImage:[self sliderThumbImage] forState:UIControlStateNormal];
+#ifdef FM_IOS4
+    [_slider setMinimumTrackImage:[self sliderTrackImageWithColor:[FMTheme greenColor]] forState:UIControlStateNormal];
+    [_slider setMaximumTrackImage:[self sliderTrackImageWithColor:[UIColor colorWithWhite:0.35 alpha:1]] forState:UIControlStateNormal];
+#else
     [_slider setMinimumTrackTintColor:[FMTheme greenColor]];
     [_slider setMaximumTrackTintColor:[UIColor colorWithWhite:0.35 alpha:1]];
+#endif
     [_slider addTarget:self action:@selector(sliderTouchDown:) forControlEvents:UIControlEventTouchDown];
     [_slider addTarget:self action:@selector(sliderValueChanged:) forControlEvents:UIControlEventValueChanged];
     [_slider addTarget:self action:@selector(sliderTouchUp:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
@@ -242,9 +260,22 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
+#ifdef FM_IOS4
+    // viewWillLayoutSubviews needs iOS 5.
+    [self viewWillLayoutSubviews];
+#endif
     [self updateAll];
     _progressTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(updateProgress) userInfo:nil repeats:YES];
 }
+
+#ifdef FM_IOS4
+// The view only gets its final size, without the tab bar, once it's on screen.
+- (void)viewDidAppear:(BOOL)animated
+{
+    [super viewDidAppear:animated];
+    [self viewWillLayoutSubviews];
+}
+#endif
 
 - (void)viewWillDisappear:(BOOL)animated
 {

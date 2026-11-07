@@ -73,3 +73,6 @@ iOSInjectionProject/
 # Rust build output
 FMLibrespot/target/
 FMLibrespot/build/
+
+# iOS 4 build output
+build-ios4/

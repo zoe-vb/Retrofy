@@ -257,6 +257,10 @@
 
 + (void)applyAppearance
 {
+#ifdef FM_IOS4
+    // No UIAppearance before iOS 5, FMiOS4Interface tints the bars itself.
+    [[UIApplication sharedApplication] setStatusBarStyle:UIStatusBarStyleBlackOpaque];
+#else
     UIColor *barButtonColor = [UIColor colorWithWhite:0.18 alpha:1];
     NSValue *shadowOffset = [NSValue valueWithUIOffset:UIOffsetMake(0, -1)];
 
@@ -297,6 +301,7 @@
     [[UISlider appearance] setMinimumTrackTintColor:[self greenColor]];
     [[UISwitch appearance] setOnTintColor:[self greenColor]];
     [[UIPageControl appearance] setCurrentPageIndicatorTintColor:[self greenColor]];
+#endif
 }
 
 + (void)styleView:(UIView *)view

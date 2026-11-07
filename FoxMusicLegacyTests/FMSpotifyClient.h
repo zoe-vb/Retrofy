@@ -16,6 +16,7 @@
 
 @interface FMSpotifyClient : FMURLConnection
 
+// The user's own Spotify app, nil until they entered one.
 @property (retain) NSString *clientId;
 
 @property NSURL *accountsBaseAddress;
@@ -29,6 +30,8 @@
 @property (retain) FMSpotifyToken *token;
 
 @property (readonly, nonatomic) BOOL isLoggedIn;
+
+- (void)saveClientId:(NSString *)clientId;
 
 - (NSURL *)makeEndpointURL:(NSString *)endpoint;
 

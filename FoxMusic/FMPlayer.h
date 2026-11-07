@@ -2,8 +2,9 @@
 //  FMPlayer.h
 //  FoxMusic
 //
-//  The play queue behind the Now Playing screen: plays a list of tracks one after another through the
-//  app delegate (librespot, or the 30 second preview), with shuffle, repeat and seeking.
+//  What the Now Playing screen shows and controls. Full tracks play on Retrofy's Spotify Connect device, so
+//  Spotify runs the queue, and other devices can take over or cast to it. Without a Connect login, this keeps
+//  its own queue of 30 second previews.
 //
 
 #import <Foundation/Foundation.h>
@@ -43,7 +44,8 @@ typedef enum {
 @property (nonatomic) BOOL shuffle;
 @property (nonatomic) FMPlayerRepeatMode repeatMode;
 
-- (void)playTracks:(FMSpotifyTrackArray *)tracks startingAtIndex:(NSUInteger)index contextName:(NSString *)contextName;
+// contextURI is what Spotify plays from, like spotify:playlist:... nil plays just these tracks.
+- (void)playTracks:(FMSpotifyTrackArray *)tracks startingAtIndex:(NSUInteger)index contextName:(NSString *)contextName contextURI:(NSString *)contextURI;
 
 - (void)play;
 - (void)pause;

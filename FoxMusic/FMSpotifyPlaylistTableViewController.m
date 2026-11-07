@@ -9,6 +9,9 @@
 #import "FMSpotifyPlaylistTableViewController.h"
 #import "FMTheme.h"
 #import "FMSpotifyLibrary.h"
+#ifdef FM_IOS4
+#import "FMSpotifyTrackTableViewController.h"
+#endif
 
 static const CGFloat FMPlaylistThumbnailSize = 44;
 
@@ -131,6 +134,16 @@ static const CGFloat FMPlaylistThumbnailSize = 44;
     NSLog(@"Loaded playlist count: %d", itemCount);
     return itemCount + 1;
 }
+
+#ifdef FM_IOS4
+// A segue from the storyboard on iOS 5 and later.
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [[self appDelegate] setSelectedPlaylist:[self playlistAtRow:indexPath.row]];
+    [self.navigationController pushViewController:[[FMSpotifyTrackTableViewController alloc] initWithStyle:UITableViewStylePlain] animated:YES];
+}
+#endif
 
 - (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(id)sender
 {

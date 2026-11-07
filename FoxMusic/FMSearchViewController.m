@@ -15,6 +15,31 @@
 
 @implementation FMSearchViewController
 
+#ifdef FM_IOS4
+// Comes from a storyboard on iOS 5 and later.
+- (void)loadView
+{
+    UIView *view = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]];
+    view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+    UISearchBar *searchBar = [[UISearchBar alloc] initWithFrame:CGRectMake(0, 0, view.bounds.size.width, 44)];
+    searchBar.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    searchBar.tintColor = [UIColor colorWithWhite:0.15 alpha:1];
+    searchBar.delegate = self;
+    [view addSubview:searchBar];
+
+    UITableView *tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 44, view.bounds.size.width, view.bounds.size.height - 44) style:UITableViewStylePlain];
+    tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tableView.dataSource = self;
+    tableView.delegate = self;
+    [view addSubview:tableView];
+
+    self.searchBar = searchBar;
+    self.searchResultTableView = tableView;
+    self.view = view;
+}
+#endif
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
@@ -65,7 +90,7 @@
 {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [_appDelegate setSelectedTrack:[[self tracks] itemAtIndex:[indexPath row]]];
-    [[FMPlayer sharedPlayer] playTracks:[self tracks] startingAtIndex:[indexPath row] contextName:@"Search"];
+    [[FMPlayer sharedPlayer] playTracks:[self tracks] startingAtIndex:[indexPath row] contextName:@"Search" contextURI:nil];
     [self showNowPlaying:nil];
 }
 

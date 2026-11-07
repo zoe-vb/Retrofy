@@ -176,7 +176,11 @@
             else [self showToast:[NSString stringWithFormat:@"Added to %@", playlist.name ?: @"playlist"] inViewController:weakViewController];
         }];
     };
-    [viewController presentViewController:[[UINavigationController alloc] initWithRootViewController:picker] animated:YES completion:nil];
+    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:picker];
+#ifdef FM_IOS4
+    navigationController.navigationBar.tintColor = [UIColor colorWithWhite:0.16 alpha:1];
+#endif
+    [viewController presentViewController:navigationController animated:YES completion:nil];
 }
 
 - (void)showError:(NSError *)error
@@ -193,7 +197,7 @@
     if (buttonIndex == alertView.cancelButtonIndex) return;
     [[FMSpotifyLibrary sharedLibrary] logOutOfWebAPI];
     // The login page is on the Playlists tab.
-    UITabBarController *tabBarController = (UITabBarController *)[[[[UIApplication sharedApplication] delegate] window] rootViewController];
+    UITabBarController *tabBarController = (UITabBarController *)[[(FMAppDelegate *)[[UIApplication sharedApplication] delegate] window] rootViewController];
     if ([tabBarController isKindOfClass:[UITabBarController class]]) tabBarController.selectedIndex = 0;
 }
 

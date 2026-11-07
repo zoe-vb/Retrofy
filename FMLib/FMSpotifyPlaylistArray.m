@@ -31,7 +31,12 @@
 
 - (NSUInteger)countByEnumeratingWithState:(NSFastEnumerationState *)state objects:(__unsafe_unretained id [])buffer count:(NSUInteger)len
 {
+#ifdef FM_IOS4
+    // The iOS 4 SDK predates ARC, its declaration has no __unsafe_unretained.
+    return [[self items] countByEnumeratingWithState:state objects:(__autoreleasing id *)(void *)buffer count:len];
+#else
     return [[self items] countByEnumeratingWithState:state objects:buffer count:len];
+#endif
 }
 
 - (FMSpotifyPlaylist *)itemAtIndex:(NSUInteger)index

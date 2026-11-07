@@ -8,17 +8,23 @@
 
 #import <Foundation/Foundation.h>
 
+#ifndef FM_IOS4
 #import "FMTrack.h"
+#endif
 
 #import "FMSpotifyClient.h"
+#ifndef FM_IOS4
 #import "FMLucidaClient.h"
+#endif
 
 #import "FMMutableURLQueryDictionary.h"
 #import "FMSpotifyPlaylistArray.h"
 #import "FMBase62Decoder.h"
 
+#ifndef FM_IOS4
 #import "FMTrackStore.h"
 
 #import "FMGLUtils.h"
 
 #import "FMWaveForm.h"
+#endif

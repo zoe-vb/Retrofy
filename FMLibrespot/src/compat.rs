@@ -89,7 +89,6 @@ pub unsafe extern "C" fn clock_gettime(clock_id: c_int, tp: *mut Timespec) -> c_
 }
 
 extern "C" {
-    fn arc4random_buf(buf: *mut core::ffi::c_void, nbytes: usize);
     fn sin(x: f64) -> f64;
     fn cos(x: f64) -> f64;
     fn pow(x: f64, y: f64) -> f64;
@@ -148,4 +147,42 @@ pub unsafe extern "C" fn dirfd(dirp: *mut core::ffi::c_void) -> c_int {
         return -1;
     }
     *(dirp as *const c_int)
+}
+
+/// iOS 4.3+, as far as Apple's headers remember. iOS 4.2.1 only has arc4random itself.
+#[no_mangle]
+pub unsafe extern "C" fn arc4random_buf(bytes: *mut core::ffi::c_void, count: usize) {
+    extern "C" {
+        fn arc4random() -> u32;
+    }
+    let bytes = bytes as *mut u8;
+    for offset in 0..count {
+        *bytes.add(offset) = arc4random() as u8;
+    }
+}
+
+/// iOS 4.2.1's kernel predates `F_DUPFD_CLOEXEC`, which std's `try_clone` uses and tokio needs to start. It
+/// answers an unknown command on anything but a file with EBADF. Everything else goes straight to the
+/// kernel. On 32-bit Arm iOS variadic arguments arrive like normal ones, so `arg` is the third register.
+#[cfg(fm_ios4)]
+#[no_mangle]
+pub unsafe extern "C" fn fcntl(fd: c_int, cmd: c_int, arg: usize) -> c_int {
+    const SYS_FCNTL: c_int = 92;
+    const F_DUPFD: c_int = 0;
+    const F_SETFD: c_int = 2;
+    const FD_CLOEXEC: usize = 1;
+    const F_DUPFD_CLOEXEC: c_int = 67;
+
+    extern "C" {
+        fn syscall(number: c_int, ...) -> c_int;
+    }
+
+    if cmd == F_DUPFD_CLOEXEC {
+        let duplicate = syscall(SYS_FCNTL, fd, F_DUPFD, arg);
+        if duplicate >= 0 {
+            syscall(SYS_FCNTL, duplicate, F_SETFD, FD_CLOEXEC);
+        }
+        return duplicate;
+    }
+    syscall(SYS_FCNTL, fd, cmd, arg)
 }

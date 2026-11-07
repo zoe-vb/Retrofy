@@ -1,5 +1,7 @@
 //! C interface to librespot: Spotify Connect login, saved credentials, Web API tokens and playback.
-//! There is one session per process. Decoded audio plays through an Audio Queue and is never
+//! There is one session per process, and it runs a Spotify Connect device (Spirc): Retrofy shows up in
+//! the other Spotify apps' device lists, and its own playback goes through the same device, so the queue,
+//! shuffle and repeat follow Spotify's context logic. Decoded audio plays through an Audio Queue and is never
 //! written to disk; the cache folder only holds the reusable login and the device ID.
 
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -9,6 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
+use librespot::connect::{ConnectConfig, LoadContextOptions, LoadRequest, LoadRequestOptions, Options, PlayingTrack, Spirc};
 use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
 use librespot::core::config::{DeviceType, SessionConfig};
@@ -16,13 +19,15 @@ use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
 use librespot::core::spotify_uri::SpotifyUri;
 use librespot::discovery::Discovery;
+use librespot::metadata::audio::{AudioItem, UniqueFields};
 use librespot::metadata::image::{Image, ImageSize};
 use librespot::metadata::{Metadata, Playlist, Track};
 use librespot::playback::audio_backend::{Sink, SinkResult};
 use librespot::playback::config::PlayerConfig;
 use librespot::playback::convert::Converter;
 use librespot::playback::decoder::AudioPacket;
-use librespot::playback::mixer::NoOpVolume;
+use librespot::playback::mixer::softmixer::SoftMixer;
+use librespot::playback::mixer::{Mixer, MixerConfig};
 use librespot::playback::player::{Player, PlayerEvent};
 use tokio::runtime::Runtime;
 use tokio::task::JoinHandle;
@@ -44,6 +49,18 @@ pub const EVENT_LOGGED_IN: i32 = 7;
 pub const EVENT_LOGIN_FAILED: i32 = 8;
 pub const EVENT_DISCOVERY_STOPPED: i32 = 9;
 pub const EVENT_LOG: i32 = 10;
+/// The Connect device's track changed, detail is the track as Web API JSON.
+pub const EVENT_TRACK_CHANGED: i32 = 11;
+/// A new playback position while playing or after seeking.
+pub const EVENT_POSITION: i32 = 12;
+/// position_ms is 1 when shuffling.
+pub const EVENT_SHUFFLE: i32 = 13;
+/// position_ms is 0 (off), 1 (repeat the context) or 2 (repeat the track).
+pub const EVENT_REPEAT: i32 = 14;
+/// position_ms is the volume, 0 to 65535.
+pub const EVENT_VOLUME: i32 = 15;
+/// Another device took over playback.
+pub const EVENT_INACTIVE: i32 = 16;
 
 /// The context pointer belongs to Retrofy, which promises it's usable from any thread.
 #[derive(Clone, Copy)]
@@ -74,7 +91,10 @@ impl Events {
 struct Active {
     session: Session,
     player: Arc<Player>,
+    spirc: Spirc,
 }
+
+const SESSION_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 struct State {
     runtime: Runtime,
@@ -83,6 +103,8 @@ struct State {
     events: Events,
     active: Mutex<Option<Active>>,
     discovery: Mutex<Option<JoinHandle<()>>>,
+    /// Held while logging back in, so the watchdog and a Play press don't both replace the session.
+    reconnecting: Mutex<()>,
 }
 
 static STATE: OnceLock<State> = OnceLock::new();
@@ -186,38 +208,48 @@ impl State {
             config.device_id,
             credentials.auth_type
         );
-        let session = Session::new(config, Some(self.cache()?));
-        session.connect(credentials, true).await.map_err(|e| e.to_string())?;
-
-        let player = Player::new(PlayerConfig::default(), session.clone(), Box::new(NoOpVolume), make_sink);
-        let events = self.events;
-        let mut player_events = player.get_player_event_channel();
-        tokio::spawn(async move {
-            while let Some(event) = player_events.recv().await {
-                let (kind, position_ms, uri) = match event {
-                    PlayerEvent::Playing { position_ms, track_id, .. } => (EVENT_PLAYING, position_ms, track_id),
-                    PlayerEvent::Paused { position_ms, track_id, .. } => (EVENT_PAUSED, position_ms, track_id),
-                    PlayerEvent::Stopped { track_id, .. } => (EVENT_STOPPED, 0, track_id),
-                    PlayerEvent::EndOfTrack { track_id, .. } => (EVENT_END_OF_TRACK, 0, track_id),
-                    PlayerEvent::Unavailable { track_id, .. } => (EVENT_UNAVAILABLE, 0, track_id),
-                    PlayerEvent::Loading { position_ms, track_id, .. } => (EVENT_LOADING, position_ms, track_id),
-                    _ => continue,
-                };
-                events.send(kind, position_ms, &uri.to_uri().unwrap_or_default());
-            }
-        });
-
-        let username = session.username();
-        let previous = self.active.lock().unwrap_or_else(|e| e.into_inner()).replace(Active { session, player });
+        // One Connect device per process: the previous one has to go before the new session registers.
+        let previous = self.active.lock().unwrap_or_else(|e| e.into_inner()).take();
         if let Some(previous) = previous {
+            let _ = previous.spirc.shutdown();
             previous.player.stop();
             previous.session.shutdown();
         }
+
+        let session = Session::new(config, Some(self.cache()?));
+        // Soft volume so other devices can change Retrofy's volume. It starts at full, the phone's own
+        // volume buttons work on top of it.
+        let mixer: Arc<dyn Mixer> = Arc::new(SoftMixer::open(MixerConfig::default()).map_err(|e| e.to_string())?);
+        let player_config = PlayerConfig { position_update_interval: Some(Duration::from_secs(1)), ..PlayerConfig::default() };
+        let player = Player::new(player_config, session.clone(), mixer.get_soft_volume(), make_sink);
+        forward_player_events(self.events, &player);
+
+        let connect_config = ConnectConfig {
+            name: "Retrofy".to_string(),
+            device_type: DeviceType::Smartphone,
+            initial_volume: u16::MAX,
+            ..ConnectConfig::default()
+        };
+        // Spirc logs the session in (saving the credentials) once its message listeners are registered.
+        let (spirc, task) = Spirc::new(connect_config, session.clone(), credentials, player.clone(), mixer)
+            .await
+            .map_err(|e| e.to_string())?;
+        tokio::spawn(task);
+
+        let username = session.username();
+        *self.active.lock().unwrap_or_else(|e| e.into_inner()) = Some(Active { session, player, spirc });
         Ok(username)
     }
 
     /// The current session, logging back in with the saved credentials if there is none or it dropped.
     fn session(&self) -> Result<(Session, Arc<Player>), String> {
+        if let Some(active) = self.active.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if !active.session.is_invalid() {
+                return Ok((active.session.clone(), active.player.clone()));
+            }
+        }
+        let _reconnecting = self.reconnecting.lock().unwrap_or_else(|e| e.into_inner());
+        // Whoever held the lock may have just done this.
         if let Some(active) = self.active.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             if !active.session.is_invalid() {
                 return Ok((active.session.clone(), active.player.clone()));
@@ -229,6 +261,86 @@ impl State {
         let active = active.as_ref().ok_or("Not logged in to Spotify")?;
         Ok((active.session.clone(), active.player.clone()))
     }
+
+    /// Spotify closes connections now and then, which ends the Connect device and takes Retrofy out of the
+    /// other devices' lists. Nothing else notices until Play is pressed.
+    fn watch_session(&'static self) {
+        let watchdog = std::thread::Builder::new().name("fm-session-watchdog".into()).spawn(move || loop {
+            std::thread::sleep(SESSION_CHECK_INTERVAL);
+            let is_invalid = self
+                .active
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(|active| active.session.is_invalid());
+            if is_invalid {
+                log::info!("Session ended, reconnecting");
+                self.events.send(EVENT_INACTIVE, 0, "");
+                if let Err(error) = self.session() {
+                    log::warn!("Couldn't reconnect: {error}");
+                }
+            }
+        });
+        if let Err(error) = watchdog {
+            log::warn!("Couldn't start the session watchdog: {error}");
+        }
+    }
+}
+
+/// Sends the player's events to Retrofy, see the EVENT_ constants.
+fn forward_player_events(events: Events, player: &Player) {
+    let mut player_events = player.get_player_event_channel();
+    tokio::spawn(async move {
+        while let Some(event) = player_events.recv().await {
+            let uri = |track_id: SpotifyUri| track_id.to_uri().unwrap_or_default();
+            match event {
+                PlayerEvent::Playing { position_ms, track_id, .. } => events.send(EVENT_PLAYING, position_ms, &uri(track_id)),
+                PlayerEvent::Paused { position_ms, track_id, .. } => events.send(EVENT_PAUSED, position_ms, &uri(track_id)),
+                PlayerEvent::Stopped { track_id, .. } => events.send(EVENT_STOPPED, 0, &uri(track_id)),
+                PlayerEvent::EndOfTrack { track_id, .. } => events.send(EVENT_END_OF_TRACK, 0, &uri(track_id)),
+                PlayerEvent::Unavailable { track_id, .. } => events.send(EVENT_UNAVAILABLE, 0, &uri(track_id)),
+                PlayerEvent::Loading { position_ms, track_id, .. } => events.send(EVENT_LOADING, position_ms, &uri(track_id)),
+                PlayerEvent::PositionChanged { position_ms, track_id, .. }
+                | PlayerEvent::Seeked { position_ms, track_id, .. }
+                | PlayerEvent::PositionCorrection { position_ms, track_id, .. } => {
+                    events.send(EVENT_POSITION, position_ms, &uri(track_id))
+                }
+                PlayerEvent::TrackChanged { audio_item } => events.send(EVENT_TRACK_CHANGED, 0, &audio_item_json(&audio_item)),
+                PlayerEvent::ShuffleChanged { shuffle } => events.send(EVENT_SHUFFLE, shuffle as u32, ""),
+                PlayerEvent::RepeatChanged { context, track } => {
+                    events.send(EVENT_REPEAT, if track { 2 } else if context { 1 } else { 0 }, "")
+                }
+                PlayerEvent::VolumeChanged { volume } => events.send(EVENT_VOLUME, u32::from(volume), ""),
+                PlayerEvent::SessionDisconnected { .. } => events.send(EVENT_INACTIVE, 0, ""),
+                _ => {}
+            }
+        }
+    });
+}
+
+/// A track in the Web API's JSON shape, which FMSpotifyTrack reads.
+fn audio_item_json(item: &AudioItem) -> String {
+    let (artists, album): (Vec<String>, String) = match &item.unique_fields {
+        UniqueFields::Track { artists, album, .. } => (artists.iter().map(|artist| artist.name.clone()).collect(), album.clone()),
+        UniqueFields::Episode { show_name, .. } => (vec![show_name.clone()], show_name.clone()),
+        UniqueFields::Local { artists, album, .. } => (artists.iter().cloned().collect(), album.clone().unwrap_or_default()),
+    };
+    let artists = artists.iter().map(|name| format!("{{\"name\":{}}}", json_string(name))).collect::<Vec<_>>().join(",");
+    let images = item
+        .covers
+        .iter()
+        .max_by_key(|cover| cover.width)
+        .map(|cover| format!("{{\"url\":{}}}", json_string(&cover.url)))
+        .unwrap_or_default();
+    let id = item.uri.rsplit(':').next().unwrap_or_default();
+    format!(
+        "{{\"id\":{},\"uri\":{},\"name\":{},\"duration_ms\":{},\"album\":{{\"name\":{},\"images\":[{images}]}},\"artists\":[{artists}]}}",
+        json_string(id),
+        json_string(&item.uri),
+        json_string(&item.name),
+        item.duration_ms,
+        json_string(&album)
+    )
 }
 
 fn state() -> Option<&'static State> {
@@ -318,7 +430,11 @@ pub unsafe extern "C" fn fm_librespot_init(
         events,
         active: Mutex::new(None),
         discovery: Mutex::new(None),
+        reconnecting: Mutex::new(()),
     });
+    if let Some(state) = STATE.get() {
+        state.watch_session();
+    }
     true
 }
 
@@ -451,17 +567,34 @@ pub unsafe extern "C" fn fm_librespot_web_api_token(
 pub extern "C" fn fm_librespot_logout() {
     let Some(state) = state() else { return };
     if let Some(active) = state.active.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        let _ = active.spirc.shutdown();
         active.player.stop();
         active.session.shutdown();
     }
     let _ = fs::remove_file(state.cache_dir.join("credentials.json"));
 }
 
-/// Loads a track by URI, e.g. "spotify:track:4cOdK2wGLETKBW3PvgPWqT". Blocks if it has to log in first.
+fn with_spirc(action: impl FnOnce(&Spirc) -> Result<(), librespot::core::Error>) {
+    if let Some(state) = state() {
+        if let Some(active) = state.active.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if let Err(error) = action(&active.spirc) {
+                log::warn!("Spotify Connect command failed: {error}");
+            }
+        }
+    }
+}
+
+/// Starts playing on Retrofy's Connect device, taking over from whichever device was playing. `tracks` is
+/// either a context URI (spotify:playlist:..., spotify:album:..., or "spotify:collection" for Liked Songs)
+/// with `start_uri` the track to start at, or a JSON array of track URIs with `start_index`. Starts
+/// `position_ms` into that track. Blocks if it has to log in first.
 #[no_mangle]
-pub unsafe extern "C" fn fm_librespot_load(
-    uri: *const c_char,
-    start_playing: bool,
+pub unsafe extern "C" fn fm_connect_play_context(
+    context_uri: *const c_char,
+    track_uris_json: *const c_char,
+    start_uri: *const c_char,
+    start_index: u32,
+    shuffle: bool,
     position_ms: u32,
     error_out: *mut *mut c_char,
 ) -> bool {
@@ -469,57 +602,99 @@ pub unsafe extern "C" fn fm_librespot_load(
         set_error(error_out, "librespot isn't initialised");
         return false;
     };
-    let Some(uri) = str_arg(uri) else {
-        set_error(error_out, "Missing track URI");
-        return false;
-    };
-    let uri = match SpotifyUri::from_uri(uri) {
-        Ok(uri) => uri,
-        Err(_) => {
-            set_error(error_out, format!("Invalid track URI: {uri}"));
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
             return false;
         }
     };
-    match state.session() {
-        Ok((_, player)) => {
-            let _guard = state.runtime.enter();
-            player.load(uri, start_playing, position_ms);
-            true
+    let playing_track = match str_arg(start_uri) {
+        Some(uri) if !uri.is_empty() => Some(PlayingTrack::Uri(uri.to_string())),
+        // u32::MAX: no start track, Spotify picks one (a random one when shuffling).
+        _ if start_index == u32::MAX => None,
+        _ => Some(PlayingTrack::Index(start_index)),
+    };
+    let options = LoadRequestOptions {
+        start_playing: true,
+        seek_to: position_ms,
+        context_options: Some(LoadContextOptions::Options(Options { shuffle, ..Options::default() })),
+        playing_track,
+    };
+    let request = match (str_arg(context_uri), str_arg(track_uris_json)) {
+        (Some(context), _) if !context.is_empty() => {
+            let context = if context == "spotify:collection" {
+                format!("spotify:user:{}:collection", session.username())
+            } else {
+                context.to_string()
+            };
+            LoadRequest::from_context_uri(context, options)
         }
+        (_, Some(json)) => {
+            let uris: Vec<String> = json
+                .trim_matches(|c| c == '[' || c == ']')
+                .split(',')
+                .map(|uri| uri.trim().trim_matches('"').to_string())
+                .filter(|uri| !uri.is_empty())
+                .collect();
+            LoadRequest::from_tracks(uris, options)
+        }
+        _ => {
+            set_error(error_out, "Nothing to play");
+            return false;
+        }
+    };
+    let active = state.active.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(active) = active.as_ref() else {
+        set_error(error_out, "Not logged in to Spotify");
+        return false;
+    };
+    match active.spirc.activate().and_then(|_| active.spirc.load(request)) {
+        Ok(()) => true,
         Err(error) => {
-            set_error(error_out, error);
+            set_error(error_out, format!("Couldn't start playback: {error}"));
             false
-        }
-    }
-}
-
-fn with_player(action: impl FnOnce(&Player)) {
-    if let Some(state) = state() {
-        if let Some(active) = state.active.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            let _guard = state.runtime.enter();
-            action(&active.player);
         }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn fm_librespot_play() {
-    with_player(|player| player.play());
+    with_spirc(|spirc| spirc.play());
 }
 
 #[no_mangle]
 pub extern "C" fn fm_librespot_pause() {
-    with_player(|player| player.pause());
-}
-
-#[no_mangle]
-pub extern "C" fn fm_librespot_stop() {
-    with_player(|player| player.stop());
+    with_spirc(|spirc| spirc.pause());
 }
 
 #[no_mangle]
 pub extern "C" fn fm_librespot_seek(position_ms: u32) {
-    with_player(|player| player.seek(position_ms));
+    with_spirc(|spirc| spirc.set_position_ms(position_ms));
+}
+
+#[no_mangle]
+pub extern "C" fn fm_connect_next() {
+    with_spirc(|spirc| spirc.next());
+}
+
+#[no_mangle]
+pub extern "C" fn fm_connect_previous() {
+    with_spirc(|spirc| spirc.prev());
+}
+
+#[no_mangle]
+pub extern "C" fn fm_connect_set_shuffle(shuffle: bool) {
+    with_spirc(|spirc| spirc.shuffle(shuffle));
+}
+
+/// 0 off, 1 repeat the context, 2 repeat the track.
+#[no_mangle]
+pub extern "C" fn fm_connect_set_repeat(mode: u32) {
+    with_spirc(|spirc| {
+        spirc.repeat(mode == 1)?;
+        spirc.repeat_track(mode == 2)
+    });
 }
 
 /// Track metadata requests sent at once while listing a playlist.

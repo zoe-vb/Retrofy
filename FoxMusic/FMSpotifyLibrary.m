@@ -27,7 +27,7 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
     // Saved state by track ID.
     NSMutableDictionary *_savedTracks;
     // Track IDs waiting to be looked up, and the ones being looked up.
-    NSMutableOrderedSet *_queuedTrackIDs;
+    NSMutableArray *_queuedTrackIDs;
     NSMutableSet *_pendingTrackIDs;
 }
 @end
@@ -49,7 +49,7 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
     self = [super init];
     if (self) {
         _savedTracks = [NSMutableDictionary dictionary];
-        _queuedTrackIDs = [NSMutableOrderedSet orderedSet];
+        _queuedTrackIDs = [NSMutableArray array];
         _pendingTrackIDs = [NSMutableSet set];
     }
     return self;
@@ -109,7 +109,7 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
         [request setValue:@"0" forHTTPHeaderField:@"Content-Length"];
     }
 
-    FMURLConnectionDelegate *delegate = [FMURLConnectionDelegate urlConnectionControllerWithCallback:^(NSData *data){
+    void (^handleResponse)(NSData *) = ^(NSData *data){
         if (!data) {
             completion(nil, [NSError errorWithDomain:@"network_error" code:1001 userInfo:@{NSLocalizedFailureReasonErrorKey: @"Network error", NSLocalizedDescriptionKey: @"The request to Spotify failed."}]);
             return;
@@ -128,8 +128,14 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
             return;
         }
         completion(response, nil);
-    }];
+    };
+
+#ifdef FM_IOS4
+    FMSendRustlsRequest(method, url, bearer, handleResponse);
+#else
+    FMURLConnectionDelegate *delegate = [FMURLConnectionDelegate urlConnectionControllerWithCallback:handleResponse];
     [[[NSURLConnection alloc] initWithRequest:request delegate:delegate] start];
+#endif
 }
 
 - (NSNumber *)isTrackSaved:(FMSpotifyTrack *)track
@@ -154,7 +160,7 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
     for (FMSpotifyTrack *track in tracks) {
         NSString *identifier = track.identifier;
         if (!identifier || [_savedTracks objectForKey:identifier] || [_pendingTrackIDs containsObject:identifier]) continue;
-        [_queuedTrackIDs addObject:identifier];
+        if (![_queuedTrackIDs containsObject:identifier]) [_queuedTrackIDs addObject:identifier];
     }
     if (!_queuedTrackIDs.count) return;
     // Rows appear one by one while scrolling, gather them first.
@@ -164,7 +170,7 @@ static const NSUInteger FMSpotifyLibraryContainsLimit = 40;
 
 - (void)sendQueuedRequests
 {
-    NSArray *identifiers = [_queuedTrackIDs array];
+    NSArray *identifiers = [_queuedTrackIDs copy];
     [_queuedTrackIDs removeAllObjects];
     for (NSUInteger start = 0; start < identifiers.count; start += FMSpotifyLibraryContainsLimit) {
         NSArray *batch = [identifiers subarrayWithRange:NSMakeRange(start, MIN(FMSpotifyLibraryContainsLimit, identifiers.count - start))];

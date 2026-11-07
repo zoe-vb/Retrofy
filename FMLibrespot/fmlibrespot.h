@@ -3,7 +3,8 @@
 //  Retrofy
 //
 //  C interface of the Rust librespot bridge (FMLibrespot/). Requires Spotify Premium.
-//  There is one librespot session per process; call fm_librespot_init before anything else.
+//  There is one librespot session per process; call fm_librespot_init before anything else. Once logged
+//  in, the session runs a Spotify Connect device named Retrofy, and all playback goes through it.
 //
 
 #ifndef FMLIBRESPOT_H
@@ -28,6 +29,18 @@ enum {
     FM_LIBRESPOT_EVENT_DISCOVERY_STOPPED = 9,
     /// A log message from librespot, detail is the message.
     FM_LIBRESPOT_EVENT_LOG = 10,
+    /// The Connect device's track changed, detail is the track as Web API JSON.
+    FM_LIBRESPOT_EVENT_TRACK_CHANGED = 11,
+    /// A new playback position, sent every second while playing and after seeking.
+    FM_LIBRESPOT_EVENT_POSITION = 12,
+    /// position_ms is 1 when shuffling, 0 when not.
+    FM_LIBRESPOT_EVENT_SHUFFLE = 13,
+    /// position_ms is 0 (off), 1 (repeat the context) or 2 (repeat the track).
+    FM_LIBRESPOT_EVENT_REPEAT = 14,
+    /// position_ms is the Connect volume, 0 to 65535.
+    FM_LIBRESPOT_EVENT_VOLUME = 15,
+    /// Another device took over playback.
+    FM_LIBRESPOT_EVENT_INACTIVE = 16,
 };
 
 /// Receives events on a background thread. `detail` (a track URI, user name or error message) is only
@@ -61,13 +74,20 @@ bool fm_librespot_web_api_token(const char *scopes, char **token_out, uint32_t *
 /// Logs out and forgets the saved login.
 void fm_librespot_logout(void);
 
-/// Loads a track by URI, e.g. "spotify:track:4cOdK2wGLETKBW3PvgPWqT", playing through an Audio Queue
-/// (set up AVAudioSession first). Blocks if it has to log in first.
-bool fm_librespot_load(const char *uri, bool start_playing, uint32_t position_ms, char **error_out);
+/// Starts playing on Retrofy's Connect device (taking over from any other device), through an Audio Queue:
+/// set up AVAudioSession first. Either context_uri (spotify:playlist:..., spotify:album:..., or
+/// "spotify:collection" for Liked Songs) starting at start_uri, or track_uris_json (a JSON array of track URIs)
+/// starting at start_index. Starts position_ms into that track. start_index UINT32_MAX with no start_uri lets
+/// Spotify pick the first track. Blocks if it has to log in first.
+bool fm_connect_play_context(const char *context_uri, const char *track_uris_json, const char *start_uri, uint32_t start_index, bool shuffle, uint32_t position_ms, char **error_out);
 void fm_librespot_play(void);
 void fm_librespot_pause(void);
-void fm_librespot_stop(void);
 void fm_librespot_seek(uint32_t position_ms);
+void fm_connect_next(void);
+void fm_connect_previous(void);
+void fm_connect_set_shuffle(bool shuffle);
+/// 0 off, 1 repeat the context, 2 repeat the track.
+void fm_connect_set_repeat(uint32_t mode);
 
 /// Lists up to `limit` entries of a playlist (base62 ID) from `offset`, for playlists the Web API won't list:
 /// Spotify only gives development mode apps the tracks of the user's own playlists. Stores JSON shaped like a
@@ -76,11 +96,13 @@ void fm_librespot_seek(uint32_t position_ms);
 /// fm_librespot_free_string.
 bool fm_librespot_playlist_tracks(const char *playlist_id, uint32_t offset, uint32_t limit, char **json_out, char **error_out);
 
-/// Receives the token response JSON (success) or an error message, on a background thread.
+/// Receives the token response JSON, with the client ID the user entered added as "client_id" (success), or
+/// an error message, on a background thread.
 typedef void (*fm_webapi_login_callback)(void *context, bool success, const char *detail);
 
-/// Web API login for Retrofy's own client ID (PKCE). Serves a page on `port` on the local network with a
-/// link to Spotify's login; the user pastes the address Spotify redirected to (redirect_uri, which must be
+/// Web API login with the user's own client ID (PKCE). Serves a page on `port` on the local network where the
+/// user enters the client ID (client_id fills in the field and may be NULL), with a link to Spotify's login.
+/// The user pastes the address Spotify redirected to (redirect_uri, which must be
 /// registered for the client ID) back into the page. Stops by itself once logged in.
 bool fm_webapi_login_start(const char *client_id, const char *redirect_uri, uint16_t port, void *context, fm_webapi_login_callback callback, char **error_out);
 void fm_webapi_login_stop(void);

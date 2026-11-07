@@ -25,16 +25,17 @@
 + (void)setAllowsAnyHTTPSCertificate:(BOOL)allow forHost:(NSString *)host;
 @end
 
+static NSString *const FMSpotifyClientIdKey = @"FMSpotifyClientID";
+
 @implementation FMSpotifyClient
 
 - (id)init
 {
     self = [super init];
     if (self) {
-        // Use your own Spotify app's client ID (FMSpotifyClientID in the Info.plist). The default one belongs
-        // to the original developer, is shared by every Retrofy install and runs into QUOTA_EXCEEDED.
-        NSString *configuredClientId = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"FMSpotifyClientID"];
-        self.clientId = [configuredClientId isKindOfClass:[NSString class]] && [configuredClientId length] ? configuredClientId : @"756a522d9f1648b89e76e80be654456a";
+        // Every user brings their own Spotify app, a development mode app only allows 5 people.
+        NSString *savedClientId = [[NSUserDefaults standardUserDefaults] stringForKey:FMSpotifyClientIdKey];
+        self.clientId = [savedClientId length] ? savedClientId : nil;
         
         
         NSString *accountsBaseAddress = @"https://accounts.spotify.com";
@@ -56,6 +57,8 @@
         // the shared client ID's quota, so log in again through the Web API login page instead.
         if (!self.token.refreshToken) self.token = [FMSpotifyToken tokenWithDictionary:@{}];
 #endif
+        // A login belongs to the client ID it was made with, without one it can't be refreshed.
+        if (!self.clientId) self.token = [FMSpotifyToken tokenWithDictionary:@{}];
         
 //        apiParser = [FMSpotifyAPIParser apiParser];
     }
@@ -85,7 +88,7 @@
     
     FMMutableURLQueryDictionary *body = [FMMutableURLQueryDictionary urlQueryDictionary];
     
-    if (injectClientId) [body addEntriesFromDictionary:@{@"client_id": self.clientId}];
+    if (injectClientId && self.clientId) [body addEntriesFromDictionary:@{@"client_id": self.clientId}];
     [body addEntriesFromDictionary:requestBody];
     [request setHTTPBody:[body urlEncodedData]];
     
@@ -179,6 +182,13 @@
         
     }
     
+    if (serializationError) {
+        // Some of Spotify's refusals, like an account that isn't allowed to use the app, are plain text.
+        NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if ([text length] > 300) text = [text substringToIndex:300];
+        serializationError = [NSError errorWithDomain:@"spotify_reply" code:serializationError.code userInfo:@{NSLocalizedFailureReasonErrorKey: @"Spotify refused the request", NSLocalizedDescriptionKey: [text length] ? text : @"Spotify sent an empty reply."}];
+    }
+
     if (error) {
         *error = serializationError;
     }
@@ -361,7 +371,9 @@
 {
     NSError *requestError;
 
-    // With FM_LIBRESPOT this is the refresh token from the Web API login page (FMSpotifyClientID's own
+    if (!self.clientId) return NO;
+
+    // With FM_LIBRESPOT this is the refresh token from the Web API login page (the user's own client ID's
     // quota). librespot's login5 tokens aren't used for the Web API: they belong to librespot's shared
     // client ID, whose Web API quota is used up (429). The refresh request goes through rustls.
     if (!self.token) @throw[NSException exceptionWithName:@"Failed to refresh token" reason:@"Cannot refresh a token that does not exist." userInfo:@{}];
@@ -396,6 +408,13 @@
 //    if (!self.token.isValid) [self.token load];
     [self.token save];
     return self.token;
+}
+
+- (void)saveClientId:(NSString *)clientId
+{
+    self.clientId = clientId;
+    [[NSUserDefaults standardUserDefaults] setObject:clientId forKey:FMSpotifyClientIdKey];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (BOOL)isLoggedIn
