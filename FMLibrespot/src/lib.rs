@@ -6,6 +6,7 @@ mod audio;
 mod compat;
 mod http;
 mod player;
+mod ui;
 mod webapi_login;
 
 use std::cell::Cell;

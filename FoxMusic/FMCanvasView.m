@@ -93,9 +93,11 @@ static void *FMCanvasItemStatusContext = &FMCanvasItemStatusContext;
         if (_item.status == AVPlayerItemStatusReadyToPlay) {
             self.hidden = NO;
             if (self.playing) [_player play];
+            if (self.showingHandler) self.showingHandler(YES);
         } else if (_item.status == AVPlayerItemStatusFailed) {
             NSLog(@"Couldn't play the Canvas: %@", _item.error.localizedDescription);
             [self showVideoAtURL:nil];
+            if (self.showingHandler) self.showingHandler(NO);
         }
     });
 }

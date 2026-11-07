@@ -186,3 +186,38 @@ pub unsafe extern "C" fn fcntl(fd: c_int, cmd: c_int, arg: usize) -> c_int {
     }
     syscall(SYS_FCNTL, fd, cmd, arg)
 }
+
+#[repr(C)]
+pub struct SinCosF {
+    sin: f32,
+    cos: f32,
+}
+
+extern "C" {
+    fn sinf(x: f32) -> f32;
+    fn cosf(x: f32) -> f32;
+    fn CTFontCreateForString(current: *const core::ffi::c_void, string: *const core::ffi::c_void, location: isize, length: isize) -> *const core::ffi::c_void;
+}
+
+/// The f32 twin of `__sincos_stret`, also iOS 7.
+#[no_mangle]
+pub extern "C" fn __sincosf_stret(x: f32) -> SinCosF {
+    unsafe {
+        SinCosF {
+            sin: sinf(x),
+            cos: cosf(core::hint::black_box(x)),
+        }
+    }
+}
+
+/// iOS 7, only the language hint is new. Picks the fallback font for characters a font doesn't have.
+#[no_mangle]
+pub extern "C" fn CTFontCreateForStringWithLanguage(
+    current: *const core::ffi::c_void,
+    string: *const core::ffi::c_void,
+    location: isize,
+    length: isize,
+    _language: *const core::ffi::c_void,
+) -> *const core::ffi::c_void {
+    unsafe { CTFontCreateForString(current, string, location, length) }
+}

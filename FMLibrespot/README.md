@@ -13,6 +13,16 @@ When Retrofy is built with `FM_LIBRESPOT=1`:
 
 The login and the device ID live in `Library/librespot` (`/var/mobile/Library/librespot` for an app in `/Applications`). Delete that folder to log out. No audio is ever cached.
 
+## The UI
+
+On this branch every screen is drawn by [Slint](https://slint.dev), through its femtovg OpenGL ES 2 renderer. `ui/app.slint` has the screens, `src/ui.rs` runs them and `FoxMusic/FMInterface.m` hands them what to show and acts on what the user does. UIKit only supplies the window, the keyboard's text field, alerts and the Canvas clip, which plays in an `AVPlayerLayer` under a transparent OpenGL layer.
+
+- UIKit keeps the event loop: a CADisplayLink calls `fm_ui_tick`, touches go through `fm_ui_touch`.
+- iOS has no framebuffer 0, so `get_proc_address` hands femtovg a `glBindFramebuffer` that swaps 0 for the app's framebuffer. glow's vertex array functions get their OES names the same way. femtovg itself is unmodified.
+- Slint reads system font files on iOS, so `ui/Inter.ttf` is built into the library.
+- Slint's royalty-free license needs its `AboutSlint` widget in an About screen, or its badge on the app's download page.
+- `build/libfmlibrespot.a` is committed on this branch so the Xcode 4.6 machine can build from a pull: rebuild and commit it after changing `src/` or `ui/`.
+
 ## Building the library (modern Mac)
 
 ```sh

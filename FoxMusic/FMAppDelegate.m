@@ -7,12 +7,11 @@
 //
 
 #import "FMAppDelegate.h"
-#import "FMTheme.h"
 #import "FMPlayer.h"
 #ifdef FM_IOS4
 #import "FMiOS4Interface.h"
 #else
-#import "FMHomeViewController.h"
+#import "FMInterface.h"
 #endif
 
 #ifdef FM_LIBRESPOT
@@ -53,7 +52,6 @@ NSString *const FMLibrespotPlaybackEventNotification = @"FMLibrespotPlaybackEven
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
     [self setAlertDelegate:[[FMAlertDelegate alloc] init]];
-    [FMTheme applyAppearance];
     // Brings back the last track, paused, from the previous launch.
     [FMPlayer sharedPlayer];
     // Override point for customization after application launch.
@@ -82,26 +80,13 @@ NSString *const FMLibrespotPlaybackEventNotification = @"FMLibrespotPlaybackEven
     _interface = [[FMiOS4Interface alloc] init];
     [_interface show];
 #else
-    [self addHomeTab];
+    [[FMInterface sharedInterface] show];
 #endif
 
     return YES;
 }
 
 #ifndef FM_IOS4
-// The tabs come from the storyboards, Home goes first. The login page is on the Playlists tab, which stays
-// the first thing to see until there's a login.
-- (void)addHomeTab
-{
-    UITabBarController *tabBarController = (UITabBarController *)self.window.rootViewController;
-    if (![tabBarController isKindOfClass:[UITabBarController class]]) return;
-
-    UINavigationController *home = [[UINavigationController alloc] initWithRootViewController:[[FMHomeViewController alloc] init]];
-    home.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Home" image:[FMTheme icon:FMIconHome size:30 color:[UIColor whiteColor]] tag:0];
-    tabBarController.viewControllers = [@[home] arrayByAddingObjectsFromArray:tabBarController.viewControllers];
-    tabBarController.selectedIndex = self.spotifyClient.token.refreshToken ? 0 : 1;
-}
-
 - (void)webSocket:(SRWebSocket *)webSocket didReceiveMessage:(id)message
 {
     NSString *data = message;

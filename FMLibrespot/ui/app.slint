@@ -1,0 +1,1401 @@
+// Retrofy's screens. They show what FMInterface.m sends through Bridge, and tell it what the user did with
+// Bridge.action(name, index, text).
+
+import { ListView } from "std-widgets.slint";
+import "Inter.ttf";
+
+export struct Tile {
+    key: string,
+    name: string,
+    subtitle: string,
+    cover-key: string,
+    cover: image,
+    has-cover: bool,
+}
+
+export struct Shelf {
+    title: string,
+    items: [Tile],
+}
+
+export struct TrackRow {
+    id: string,
+    title: string,
+    subtitle: string,
+    // -1 not known yet, 0 not in Liked Songs, 1 in Liked Songs.
+    saved: int,
+}
+
+export global Bridge {
+    callback action(string, int, string);
+
+    in property <string> screen: "loading";
+    in property <string> login-address;
+    in property <string> login-status;
+
+    in property <string> greeting: "Good evening";
+    in property <[Shelf]> shelves;
+    in property <[Tile]> library;
+
+    in-out property <bool> tracks-open;
+    in property <string> tracks-title;
+    in property <bool> tracks-loading;
+    in property <[TrackRow]> tracks;
+
+    in property <[TrackRow]> search;
+    in property <string> search-status;
+    in property <string> search-text;
+    in property <bool> search-editing;
+
+    in-out property <bool> now-open;
+    in property <string> now-id;
+    in property <string> now-title;
+    in property <string> now-subtitle;
+    in property <string> now-context;
+    in property <string> now-commentary;
+    in property <bool> now-playing;
+    in property <bool> now-loading;
+    in property <bool> now-shuffle;
+    in property <int> now-repeat;
+    in property <int> now-saved: -1;
+    in property <bool> now-has-lyrics;
+    in property <bool> now-has-video;
+    in property <color> now-tint;
+    in property <image> now-cover;
+    in property <bool> now-has-cover;
+    in property <float> position;
+    in property <float> duration;
+    in-out property <float> volume: 0.5;
+
+    in-out property <bool> lyrics-open;
+    in property <[string]> lyrics;
+    in property <bool> lyrics-synced;
+    in property <color> lyrics-background;
+    in property <color> lyrics-text;
+    in property <color> lyrics-highlight;
+    in property <int> lyrics-line: -1;
+
+    in-out property <bool> sheet-open;
+    in property <string> sheet-title;
+    in-out property <bool> picker-open;
+    in property <[Tile]> picker;
+
+    in property <string> toast;
+    in property <bool> toast-visible;
+}
+
+global Theme {
+    out property <color> background: #0d0d10;
+    out property <color> raised: #1b1b20;
+    out property <color> line: #ffffff14;
+    out property <color> pressed: #ffffff14;
+    out property <color> green: #1ed760;
+    out property <color> text: #ffffff;
+    out property <color> muted: #ffffff99;
+    out property <length> status-bar: 20px;
+    out property <length> tab-bar: 54px;
+    out property <length> mini-player: 58px;
+    out property <length> row: 62px;
+}
+
+global Icons {
+    out property <string> home: "M12 3 L3 10.5 V21 H9.5 V14.5 H14.5 V21 H21 V10.5 Z";
+    out property <string> search: "M10.5 3 A7.5 7.5 0 1 0 15.3 16.3 L20 21 L21.5 19.5 L16.8 14.8 A7.5 7.5 0 0 0 10.5 3 Z M10.5 5.2 A5.3 5.3 0 1 1 10.5 15.8 A5.3 5.3 0 1 1 10.5 5.2 Z";
+    out property <string> library: "M4 3 H6.5 V21 H4 Z M9.5 3 H12 V21 H9.5 Z M15 3.6 L17.4 3 L21.5 20.4 L19.1 21 Z";
+    out property <string> back: "M15 4 L16.8 5.8 L10.6 12 L16.8 18.2 L15 20 L7 12 Z";
+    out property <string> down: "M4 8 L5.8 6.2 L12 12.4 L18.2 6.2 L20 8 L12 16 Z";
+    out property <string> play: "M7 4 V20 L20 12 Z";
+    out property <string> pause: "M6 4 H10 V20 H6 Z M14 4 H18 V20 H14 Z";
+    out property <string> next: "M18 5 H16 V19 H18 Z M4 5 V19 L15 12 Z";
+    out property <string> previous: "M6 5 H8 V19 H6 Z M20 5 V19 L9 12 Z";
+    out property <string> shuffle: "M16 4 L21 8 L16 12 V9 H14 L7 18 H3 V16 H6 L13 7 H16 Z M3 7 H7 L9.5 10.2 L8.2 11.8 L6 9 H3 Z M16 12.5 L21 16.5 L16 20.5 V18 H13 L10.8 15.2 L12.1 13.6 L14 16 H16 Z";
+    out property <string> repeat: "M7 5 H17 V2.5 L21 6 L17 9.5 V7 H7 C6 7 5 8 5 9 V11 H3 V9 C3 7 5 5 7 5 Z M17 19 H7 V21.5 L3 18 L7 14.5 V17 H17 C18 17 19 16 19 15 V13 H21 V15 C21 17 19 19 17 19 Z";
+    out property <string> add: "M12 2.5 A9.5 9.5 0 1 0 12 21.5 A9.5 9.5 0 1 0 12 2.5 Z M12 4.5 A7.5 7.5 0 1 1 12 19.5 A7.5 7.5 0 1 1 12 4.5 Z M11 7.5 H13 V11 H16.5 V13 H13 V16.5 H11 V13 H7.5 V11 H11 Z";
+    out property <string> added: "M12 2.5 A9.5 9.5 0 1 0 12 21.5 A9.5 9.5 0 1 0 12 2.5 Z M10.5 16.5 L6.5 12.5 L8 11 L10.5 13.5 L16 8 L17.5 9.5 Z";
+    out property <string> heart: "M12 21 C5 15 2 12 2 8 C2 5 4.5 3 7 3 C9 3 11 4 12 6 C13 4 15 3 17 3 C19.5 3 22 5 22 8 C22 12 19 15 12 21 Z";
+    out property <string> note: "M9 18 C9 20 7.5 21 6 21 C4.5 21 3 20 3 18.5 C3 17 4.5 16 6 16 C6.4 16 6.7 16 7 16.2 V5 L20 3 V16 C20 18 18.5 19 17 19 C15.5 19 14 18 14 16.5 C14 15 15.5 14 17 14 C17.4 14 17.7 14 18 14.2 V7 L9 8.4 Z";
+    out property <string> speaker: "M3 9 H7 L12 4.5 V19.5 L7 15 H3 Z M15 8 C17 10 17 14 15 16 L14 15 C15.5 13.5 15.5 10.5 14 9 Z";
+}
+
+component Icon inherits Path {
+    in property <string> icon;
+    in property <color> tint: Theme.text;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: root.icon;
+    fill: root.tint;
+}
+
+component IconButton {
+    in property <string> icon;
+    in property <color> tint: Theme.text;
+    in property <length> icon-size: 26px;
+    in property <bool> enabled: true;
+    callback clicked;
+
+    width: 48px;
+    height: 48px;
+    opacity: root.enabled ? 1 : 0.35;
+
+    Rectangle {
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        background: touch.pressed ? Theme.pressed : transparent;
+    }
+
+    Icon {
+        width: touch.pressed ? root.icon-size * 0.88 : root.icon-size;
+        height: self.width;
+        icon: root.icon;
+        tint: root.tint;
+        animate width { duration: 100ms; easing: ease-out; }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A cover, or what stands in for one until it's loaded. Liked Songs and the DJ are drawn.
+component Cover {
+    in property <Tile> tile;
+    in property <length> radius: 8px;
+    property <bool> liked: root.tile.key == "liked";
+    property <bool> dj: root.tile.key == "dj";
+
+    Rectangle {
+        border-radius: root.radius;
+        clip: true;
+        background: root.liked ? @linear-gradient(135deg, #5b2be0 0%, #b9d6f2 100%)
+            : root.dj ? @linear-gradient(135deg, #1ed760 0%, #0a6fd8 100%) : Theme.raised;
+
+        if root.tile.has-cover: Image {
+            width: 100%;
+            height: 100%;
+            source: root.tile.cover;
+            image-fit: cover;
+        }
+
+        if !root.tile.has-cover: Icon {
+            width: parent.width * 0.46;
+            height: self.width;
+            icon: root.liked ? Icons.heart : Icons.note;
+            tint: root.liked || root.dj ? Theme.text : #ffffff40;
+        }
+    }
+}
+
+component Row {
+    in property <bool> highlighted;
+    callback clicked;
+
+    height: Theme.row;
+
+    Rectangle {
+        background: touch.pressed ? Theme.pressed : transparent;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+
+    @children
+}
+
+component TileRow inherits Row {
+    in property <Tile> tile;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 12px;
+
+        Cover {
+            width: 48px;
+            height: 48px;
+            radius: 6px;
+            tile: root.tile;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: root.tile.name;
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.tile.subtitle;
+                color: Theme.muted;
+                font-size: 13px;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+component TrackItem inherits Row {
+    in property <TrackRow> track;
+    callback like;
+
+    property <bool> playing: root.track.id != "" && root.track.id == Bridge.now-id;
+
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 4px;
+        spacing: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: root.track.title;
+                color: root.playing ? Theme.green : Theme.text;
+                font-size: 15px;
+                font-weight: 600;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.track.subtitle;
+                color: Theme.muted;
+                font-size: 13px;
+                overflow: elide;
+            }
+        }
+
+        IconButton {
+            width: 46px;
+            height: Theme.row;
+            icon: root.track.saved == 1 ? Icons.added : Icons.add;
+            tint: root.track.saved == 1 ? Theme.green : Theme.muted;
+            icon-size: 22px;
+            enabled: root.track.saved >= 0;
+            clicked => { root.like(); }
+        }
+    }
+}
+
+component Dots {
+    in property <color> tint: Theme.text;
+
+    width: 42px;
+    height: 10px;
+
+    for dot in 3: Rectangle {
+        x: dot * 16px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: root.tint;
+        opacity: 0.25 + 0.75 * max(0, sin(animation-tick() / 180ms * 1rad - dot * 0.9rad));
+    }
+}
+
+// Dragging moves it along, released tells the value. While dragged, it doesn't follow `value`.
+component Slider {
+    in property <float> value;
+    in property <color> tint: Theme.text;
+    in property <bool> enabled: true;
+    out property <bool> dragging: touch.pressed;
+    out property <float> dragged;
+    callback changed-by-user(float);
+
+    height: 30px;
+
+    function place(x: length) {
+        root.dragged = clamp(x / root.width, 0, 1);
+        root.changed-by-user(root.dragged);
+    }
+
+    property <float> shown: root.dragging ? root.dragged : min(root.value, 1);
+    property <length> bar: root.dragging ? 6px : 4px;
+
+    Rectangle {
+        y: (parent.height - self.height) / 2;
+        height: root.bar;
+        border-radius: root.bar / 2;
+        background: #ffffff30;
+    }
+
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: parent.width * root.shown;
+        height: root.bar;
+        border-radius: root.bar / 2;
+        background: root.tint;
+    }
+
+    Rectangle {
+        x: parent.width * root.shown - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.dragging ? 18px : 12px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: root.tint;
+        animate width { duration: 100ms; easing: ease-out; }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.place(self.mouse-x);
+            }
+        }
+        moved => { root.place(self.mouse-x); }
+    }
+}
+
+component PageTitle inherits Text {
+    color: Theme.text;
+    font-size: 28px;
+    font-weight: 800;
+    overflow: elide;
+}
+
+component TileView {
+    in property <Tile> tile;
+
+    width: 124px;
+    height: 164px;
+
+    Cover {
+        x: 0;
+        y: 0;
+        width: 124px;
+        height: 124px;
+        tile: root.tile;
+        opacity: touch.pressed ? 0.7 : 1;
+    }
+
+    Text {
+        x: 0;
+        y: 130px;
+        width: 124px;
+        height: 34px;
+        text: root.tile.name;
+        color: Theme.text;
+        font-size: 13px;
+        font-weight: 600;
+        wrap: word-wrap;
+        overflow: elide;
+        vertical-alignment: top;
+    }
+
+    touch := TouchArea {
+        clicked => { Bridge.action("open", 0, root.tile.key); }
+    }
+}
+
+component HomePage {
+    in property <length> bottom-space;
+
+    property <Tile> dj: { key: "dj", name: "DJ", subtitle: "Music picked for you, with commentary" };
+    property <Tile> liked: { key: "liked", name: "Liked Songs", subtitle: "Playlist" };
+
+    Flickable {
+        content-height: column.preferred-height;
+
+        column := VerticalLayout {
+            width: root.width;
+            padding-top: Theme.status-bar + 18px;
+            padding-bottom: root.bottom-space + 12px;
+            spacing: 6px;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-bottom: 8px;
+                PageTitle { text: Bridge.greeting; }
+            }
+
+            TileRow {
+                tile: root.dj;
+                clicked => { Bridge.action("open", 0, "dj"); }
+            }
+
+            TileRow {
+                tile: root.liked;
+                clicked => { Bridge.action("open", 0, "liked"); }
+            }
+
+            for shelf in Bridge.shelves: VerticalLayout {
+                spacing: 10px;
+                padding-top: 16px;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+
+                    Text {
+                        text: shelf.title;
+                        color: Theme.text;
+                        font-size: 20px;
+                        font-weight: 700;
+                        overflow: elide;
+                    }
+                }
+
+                Flickable {
+                    height: 164px;
+                    content-width: 16px + shelf.items.length * 136px;
+
+                    for tile[index] in shelf.items: TileView {
+                        x: 16px + index * 136px;
+                        y: 0;
+                        tile: tile;
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LibraryPage {
+    in property <length> bottom-space;
+
+    Text {
+        x: 16px;
+        y: Theme.status-bar + 18px;
+        width: parent.width - 32px;
+        height: 36px;
+        text: "Your Library";
+        color: Theme.text;
+        font-size: 28px;
+        font-weight: 800;
+    }
+
+    ListView {
+        x: 0;
+        y: Theme.status-bar + 62px;
+        width: root.width;
+        height: root.height - self.y - root.bottom-space;
+
+        for tile in Bridge.library: TileRow {
+            width: root.width;
+            tile: tile;
+            clicked => { Bridge.action("open", 0, tile.key); }
+        }
+    }
+}
+
+component SearchPage {
+    in property <length> bottom-space;
+
+    Text {
+        x: 16px;
+        y: Theme.status-bar + 18px;
+        width: parent.width - 32px;
+        height: 36px;
+        text: "Search";
+        color: Theme.text;
+        font-size: 28px;
+        font-weight: 800;
+    }
+
+    // FMInterface puts a UITextField here while typing.
+    Rectangle {
+        x: 16px;
+        y: Theme.status-bar + 62px;
+        width: parent.width - 32px;
+        height: 42px;
+        border-radius: 10px;
+        background: Theme.raised;
+
+        Icon {
+            x: 12px;
+            width: 18px;
+            height: 18px;
+            icon: Icons.search;
+            tint: Theme.muted;
+        }
+
+        Text {
+            x: 40px;
+            width: parent.width - 52px;
+            visible: !Bridge.search-editing;
+            vertical-alignment: center;
+            text: Bridge.search-text != "" ? Bridge.search-text : "Songs and artists";
+            color: Bridge.search-text != "" ? Theme.text : Theme.muted;
+            font-size: 15px;
+            overflow: elide;
+        }
+
+        TouchArea {
+            clicked => { Bridge.action("search-focus", 0, ""); }
+        }
+    }
+
+    Text {
+        x: 16px;
+        y: Theme.status-bar + 130px;
+        width: parent.width - 32px;
+        visible: Bridge.search-status != "";
+        horizontal-alignment: center;
+        text: Bridge.search-status;
+        color: Theme.muted;
+        font-size: 15px;
+    }
+
+    ListView {
+        x: 0;
+        y: Theme.status-bar + 114px;
+        width: root.width;
+        height: root.height - self.y - root.bottom-space;
+
+        for track[index] in Bridge.search: TrackItem {
+            width: root.width;
+            track: track;
+            clicked => { Bridge.action("play-track", index, "search"); }
+            like => { Bridge.action("like-track", index, "search"); }
+        }
+    }
+}
+
+component TracksPage {
+    in property <length> bottom-space;
+
+    Rectangle {
+        background: Theme.background;
+    }
+
+    TouchArea { }
+
+    IconButton {
+        x: 4px;
+        y: Theme.status-bar + 4px;
+        icon: Icons.back;
+        clicked => { Bridge.tracks-open = false; }
+    }
+
+    Text {
+        x: 56px;
+        y: Theme.status-bar + 4px;
+        width: parent.width - 72px - (Bridge.tracks-loading ? 52px : 0);
+        height: 48px;
+        vertical-alignment: center;
+        text: Bridge.tracks-title;
+        color: Theme.text;
+        font-size: 19px;
+        font-weight: 700;
+        overflow: elide;
+    }
+
+    if Bridge.tracks-loading: Dots {
+        x: parent.width - 58px;
+        y: Theme.status-bar + 23px;
+        tint: Theme.muted;
+    }
+
+    list := ListView {
+        x: 0;
+        y: Theme.status-bar + 52px;
+        width: root.width;
+        height: root.height - self.y - root.bottom-space;
+
+        property <int> page: Math.max(0, Math.floor(-self.content-y / Theme.row / 10));
+        changed page => { Bridge.action("tracks-visible", self.page * 10, ""); }
+
+        property <bool> open: Bridge.tracks-open;
+        changed open => { self.content-y = 0; }
+
+        for track[index] in Bridge.tracks: TrackItem {
+            width: root.width;
+            track: track;
+            clicked => { Bridge.action("play-track", index, "tracks"); }
+            like => { Bridge.action("like-track", index, "tracks"); }
+        }
+    }
+}
+
+component MiniPlayer {
+    Rectangle {
+        x: 8px;
+        y: 4px;
+        width: parent.width - 16px;
+        height: parent.height - 8px;
+        border-radius: 10px;
+        clip: true;
+        background: Bridge.now-tint.alpha > 0 ? Bridge.now-tint.mix(#000000, 0.55) : Theme.raised;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: #00000080;
+
+        TouchArea {
+            clicked => { Bridge.now-open = true; }
+        }
+
+        HorizontalLayout {
+            padding: 6px;
+            padding-right: 0;
+            spacing: 10px;
+
+            Rectangle {
+                width: 38px;
+                border-radius: 6px;
+                clip: true;
+                background: #ffffff18;
+
+                if Bridge.now-has-cover: Image {
+                    width: 100%;
+                    height: 100%;
+                    source: Bridge.now-cover;
+                    image-fit: cover;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                Text {
+                    text: Bridge.now-title;
+                    color: Theme.text;
+                    font-size: 13px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: Bridge.now-subtitle;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    overflow: elide;
+                }
+            }
+
+            IconButton {
+                height: 38px;
+                icon: Bridge.now-playing ? Icons.pause : Icons.play;
+                clicked => { Bridge.action("toggle", 0, ""); }
+            }
+        }
+
+        Rectangle {
+            x: 0;
+            y: parent.height - 2px;
+            width: parent.width * (Bridge.duration > 0 ? Bridge.position / Bridge.duration : 0);
+            height: 2px;
+            background: Theme.text;
+        }
+    }
+}
+
+component TabButton {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+
+    Icon {
+        y: 8px;
+        width: 24px;
+        height: 24px;
+        icon: root.icon;
+        tint: root.selected ? Theme.text : Theme.muted;
+    }
+
+    Text {
+        y: 34px;
+        text: root.label;
+        color: root.selected ? Theme.text : Theme.muted;
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component Lyrics {
+    property <color> tint: Bridge.lyrics-background.alpha > 0 ? Bridge.lyrics-background : Theme.raised;
+    property <color> text-color: Bridge.lyrics-text.alpha > 0 ? Bridge.lyrics-text : Theme.muted;
+    property <color> highlight: Bridge.lyrics-highlight.alpha > 0 ? Bridge.lyrics-highlight : Theme.text;
+    property <length> target: 0;
+    property <bool> following: true;
+
+    Rectangle {
+        background: root.tint;
+    }
+
+    TouchArea { }
+
+    Text {
+        x: 20px;
+        y: Theme.status-bar + 16px;
+        width: parent.width - 80px;
+        text: Bridge.now-title;
+        color: root.highlight;
+        font-size: 15px;
+        font-weight: 700;
+        overflow: elide;
+    }
+
+    IconButton {
+        x: parent.width - 52px;
+        y: Theme.status-bar + 2px;
+        icon: Icons.down;
+        tint: root.highlight;
+        clicked => { Bridge.lyrics-open = false; }
+    }
+
+    flick := Flickable {
+        y: Theme.status-bar + 52px;
+        height: root.height - self.y;
+        content-height: lines.preferred-height;
+        flicked => {
+            root.following = false;
+            resume.running = true;
+        }
+
+        lines := VerticalLayout {
+            width: root.width;
+            padding-left: 20px;
+            padding-right: 20px;
+            padding-top: flick.height / 3;
+            padding-bottom: flick.height / 2;
+            spacing: 18px;
+
+            for line[index] in Bridge.lyrics: Text {
+                property <bool> current: Bridge.lyrics-line == index;
+
+                text: line;
+                wrap: word-wrap;
+                color: !Bridge.lyrics-synced || self.current ? root.highlight : root.text-color;
+                font-size: 23px;
+                font-weight: 700;
+
+                changed current => {
+                    if (self.current) {
+                        root.target = min(0, flick.height / 3 - self.y);
+                    }
+                }
+
+                TouchArea {
+                    clicked => { Bridge.action("lyric-seek", index, ""); }
+                }
+            }
+        }
+    }
+
+    // Moves to the current line, unless someone is reading further on.
+    Timer {
+        interval: 16ms;
+        running: root.following && abs(root.target - flick.content-y) > 1px && Bridge.lyrics-open;
+        triggered => { flick.content-y += (root.target - flick.content-y) * 0.14; }
+    }
+
+    resume := Timer {
+        interval: 5s;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.following = true;
+        }
+    }
+}
+
+component NowPlaying {
+    in property <bool> settled;
+
+    property <bool> video: Bridge.now-has-video && root.settled;
+    property <color> tint: Bridge.now-tint.alpha > 0 ? Bridge.now-tint : #33333a;
+    property <float> scrub-position: seek.dragged * Bridge.duration;
+    property <float> shown: seek.dragging ? root.scrub-position : Bridge.position;
+    property <length> swipe-start;
+
+    function time(seconds: float) -> string {
+        return Math.floor(seconds / 60) + ":" + (Math.mod(Math.floor(seconds), 60) < 10 ? "0" : "") + Math.mod(Math.floor(seconds), 60);
+    }
+
+    // Drawn until a clip plays behind everything.
+    Rectangle {
+        opacity: root.video ? 0 : 1;
+        animate opacity { duration: 300ms; }
+        background: @linear-gradient(180deg, root.tint 0%, root.tint.mix(#000000, 0.45) 50%, #000000 100%);
+    }
+
+    if root.video: Rectangle {
+        background: @linear-gradient(180deg, #00000070 0%, #00000000 16%, #00000000 40%, #000000d0 70%, #000000f0 100%);
+    }
+
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.swipe-start = self.mouse-x;
+            } else if (event.kind == PointerEventKind.up) {
+                if (self.mouse-x - root.swipe-start > 70px) {
+                    Bridge.action("previous", 0, "");
+                } else if (root.swipe-start - self.mouse-x > 70px) {
+                    Bridge.action("next", 0, "");
+                }
+            }
+        }
+    }
+
+    IconButton {
+        x: 6px;
+        y: Theme.status-bar + 2px;
+        icon: Icons.down;
+        clicked => { Bridge.now-open = false; }
+    }
+
+    Text {
+        x: 56px;
+        y: Theme.status-bar + 2px;
+        width: parent.width - 112px;
+        height: 48px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        text: Bridge.now-context;
+        color: Theme.text;
+        font-size: 13px;
+        font-weight: 600;
+        overflow: elide;
+    }
+
+    if Bridge.now-has-lyrics: Rectangle {
+        x: parent.width - 70px;
+        y: Theme.status-bar + 11px;
+        width: 58px;
+        height: 30px;
+        border-radius: 15px;
+        background: #ffffff26;
+
+        Text {
+            text: "Lyrics";
+            color: Theme.text;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        TouchArea {
+            clicked => { Bridge.lyrics-open = true; }
+        }
+    }
+
+    property <length> controls-height: 262px;
+    property <length> cover-area: root.height - root.controls-height - Theme.status-bar - 52px;
+    property <length> cover-side: min(root.width - 48px, root.cover-area - 12px);
+
+    if !root.video: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: Theme.status-bar + 52px + (root.cover-area - self.height) / 2;
+        width: root.cover-side;
+        height: root.cover-side;
+        border-radius: 12px;
+        background: #ffffff14;
+        drop-shadow-blur: 26px;
+        drop-shadow-color: #000000a0;
+        drop-shadow-offset-y: 8px;
+
+        Rectangle {
+            border-radius: 12px;
+            clip: true;
+
+            if Bridge.now-has-cover: Image {
+                width: 100%;
+                height: 100%;
+                source: Bridge.now-cover;
+                image-fit: cover;
+            }
+        }
+
+        if Bridge.now-loading: Dots { }
+    }
+
+    VerticalLayout {
+        y: root.height - self.height;
+        height: root.controls-height;
+        padding-left: 22px;
+        padding-right: 22px;
+        padding-bottom: 14px;
+        spacing: 2px;
+        alignment: end;
+
+        if Bridge.now-commentary != "": Text {
+            text: "DJ: " + Bridge.now-commentary;
+            color: Theme.text;
+            font-size: 13px;
+            wrap: word-wrap;
+            overflow: elide;
+            height: 36px;
+        }
+
+        HorizontalLayout {
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+
+                Text {
+                    text: Bridge.now-title;
+                    color: Theme.text;
+                    font-size: 21px;
+                    font-weight: 800;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: Bridge.now-subtitle;
+                    color: Theme.muted;
+                    font-size: 15px;
+                    overflow: elide;
+                }
+            }
+
+            IconButton {
+                icon: Bridge.now-saved == 1 ? Icons.added : Icons.add;
+                tint: Bridge.now-saved == 1 ? Theme.green : Theme.text;
+                enabled: Bridge.now-saved >= 0;
+                clicked => { Bridge.action("like-now", 0, ""); }
+            }
+        }
+
+        seek := Slider {
+            value: Bridge.duration > 0 ? Bridge.position / Bridge.duration : 0;
+            enabled: Bridge.duration > 0;
+            changed dragging => {
+                if (!self.dragging) {
+                    Bridge.action("seek", self.dragged * Bridge.duration * 1000, "");
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: space-between;
+            height: 16px;
+
+            Text {
+                text: root.time(root.shown);
+                color: Theme.muted;
+                font-size: 11px;
+            }
+
+            Text {
+                text: "-" + root.time(max(0, Bridge.duration - root.shown));
+                color: Theme.muted;
+                font-size: 11px;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: space-between;
+            height: 84px;
+
+            IconButton {
+                y: 18px;
+                icon: Icons.shuffle;
+                icon-size: 22px;
+                tint: Bridge.now-shuffle ? Theme.green : Theme.muted;
+                clicked => { Bridge.action("shuffle", 0, ""); }
+            }
+
+            IconButton {
+                y: 18px;
+                icon: Icons.previous;
+                icon-size: 34px;
+                clicked => { Bridge.action("previous", 0, ""); }
+            }
+
+            Rectangle {
+                y: 8px;
+                width: 68px;
+                height: 68px;
+                border-radius: 34px;
+                background: play.pressed ? #dcdcdc : #ffffff;
+
+                if Bridge.now-loading: Dots { tint: #000000; }
+
+                if !Bridge.now-loading: Icon {
+                    width: 32px;
+                    height: 32px;
+                    icon: Bridge.now-playing ? Icons.pause : Icons.play;
+                    tint: #000000;
+                }
+
+                play := TouchArea {
+                    clicked => { Bridge.action("toggle", 0, ""); }
+                }
+            }
+
+            IconButton {
+                y: 18px;
+                icon: Icons.next;
+                icon-size: 34px;
+                clicked => { Bridge.action("next", 0, ""); }
+            }
+
+            Rectangle {
+                width: 48px;
+
+                IconButton {
+                    y: 18px;
+                    icon: Icons.repeat;
+                    icon-size: 22px;
+                    tint: Bridge.now-repeat > 0 ? Theme.green : Theme.muted;
+                    clicked => { Bridge.action("repeat", 0, ""); }
+                }
+
+                if Bridge.now-repeat == 2: Text {
+                    x: 21px;
+                    y: 50px;
+                    text: "1";
+                    color: Theme.green;
+                    font-size: 9px;
+                    font-weight: 800;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            height: 30px;
+            spacing: 10px;
+
+            Icon {
+                y: 7px;
+                width: 16px;
+                height: 16px;
+                icon: Icons.speaker;
+                tint: Theme.muted;
+            }
+
+            Slider {
+                value: Bridge.volume;
+                tint: Theme.muted;
+                changed-by-user(value) => {
+                    Bridge.volume = value;
+                    Bridge.action("volume", value * 1000, "");
+                }
+            }
+        }
+    }
+}
+
+// What the + / ✓ button offers once a track is liked.
+component ActionSheet {
+    property <length> panel-height: 200px;
+    property <bool> open: Bridge.sheet-open;
+
+    Rectangle {
+        background: #00000090;
+        opacity: root.open ? 1 : 0;
+        animate opacity { duration: 200ms; }
+    }
+
+    if root.open: TouchArea {
+        clicked => { Bridge.sheet-open = false; }
+    }
+
+    Rectangle {
+        y: root.open ? root.height - root.panel-height : root.height + 30px;
+        height: root.panel-height;
+        border-top-left-radius: 18px;
+        border-top-right-radius: 18px;
+        background: Theme.raised;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000a0;
+        animate y { duration: 260ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
+
+        TouchArea { }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 2px;
+
+            Text {
+                height: 44px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                text: Bridge.sheet-title;
+                color: Theme.muted;
+                font-size: 13px;
+                overflow: elide;
+            }
+
+            for option[index] in ["Add to Playlist", "Remove from Liked Songs", "Cancel"]: Rectangle {
+                height: 46px;
+                border-radius: 10px;
+                background: option-touch.pressed ? Theme.pressed : transparent;
+
+                Text {
+                    text: option;
+                    color: index == 1 ? #ff5c5c : Theme.text;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+
+                option-touch := TouchArea {
+                    clicked => {
+                        Bridge.sheet-open = false;
+                        if (index == 0) {
+                            Bridge.action("sheet-add", 0, "");
+                        } else if (index == 1) {
+                            Bridge.action("sheet-remove", 0, "");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component PlaylistPicker {
+    Rectangle {
+        background: Theme.background;
+    }
+
+    TouchArea { }
+
+    Text {
+        x: 16px;
+        y: Theme.status-bar + 4px;
+        width: parent.width - 110px;
+        height: 48px;
+        vertical-alignment: center;
+        text: "Add to Playlist";
+        color: Theme.text;
+        font-size: 19px;
+        font-weight: 700;
+    }
+
+    Text {
+        x: parent.width - 86px;
+        y: Theme.status-bar + 4px;
+        width: 70px;
+        height: 48px;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        text: "Cancel";
+        color: Theme.green;
+        font-size: 15px;
+        font-weight: 600;
+
+        TouchArea {
+            clicked => { Bridge.picker-open = false; }
+        }
+    }
+
+    ListView {
+        x: 0;
+        y: Theme.status-bar + 52px;
+        width: root.width;
+        height: root.height - self.y;
+
+        for tile[index] in Bridge.picker: TileRow {
+            width: root.width;
+            tile: tile;
+            clicked => {
+                Bridge.picker-open = false;
+                Bridge.action("pick-playlist", index, "");
+            }
+        }
+    }
+}
+
+component Login {
+    Rectangle {
+        background: @linear-gradient(170deg, #173d2b 0%, Theme.background 55%);
+    }
+
+    TouchArea { }
+
+    VerticalLayout {
+        alignment: center;
+        padding: 32px;
+        spacing: 16px;
+
+        Text {
+            horizontal-alignment: center;
+            text: "Retrofy";
+            color: Theme.text;
+            font-size: 40px;
+            font-weight: 800;
+        }
+
+        if Bridge.screen == "loading": Rectangle {
+            height: 30px;
+            Dots { tint: Theme.muted; }
+        }
+
+        if Bridge.screen == "login": VerticalLayout {
+            spacing: 16px;
+
+            Text {
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                text: "On a computer on the same Wi-Fi, open this address and follow the steps.";
+                color: Theme.muted;
+                font-size: 15px;
+            }
+
+            Rectangle {
+                height: 52px;
+                border-radius: 12px;
+                background: Theme.raised;
+
+                Text {
+                    text: Bridge.login-address != "" ? Bridge.login-address : "Connect to Wi-Fi";
+                    color: Theme.text;
+                    font-size: 17px;
+                    font-weight: 700;
+                }
+            }
+
+            if Bridge.login-status != "": Text {
+                horizontal-alignment: center;
+                wrap: word-wrap;
+                text: Bridge.login-status;
+                color: Theme.muted;
+                font-size: 13px;
+            }
+
+            Rectangle {
+                height: 46px;
+                border-radius: 23px;
+                background: retry.pressed ? #17a84b : Theme.green;
+
+                Text {
+                    text: "Try Again";
+                    color: #000000;
+                    font-size: 15px;
+                    font-weight: 700;
+                }
+
+                retry := TouchArea {
+                    clicked => { Bridge.action("retry-login", 0, ""); }
+                }
+            }
+        }
+    }
+}
+
+export component App inherits Window {
+    property <int> tab: 0;
+    property <bool> now-settled;
+    property <bool> has-track: Bridge.now-title != "";
+    property <length> bottom-space: Theme.tab-bar + (root.has-track ? Theme.mini-player : 0);
+
+    background: transparent;
+    default-font-family: "Inter";
+    default-font-size: 15px;
+
+    // Everything under Now Playing stops being drawn once it's covered, and lets the Canvas clip through.
+    pages := Rectangle {
+        visible: !root.now-settled;
+        background: Theme.background;
+
+        HomePage {
+            visible: root.tab == 0;
+            bottom-space: root.bottom-space;
+        }
+
+        SearchPage {
+            visible: root.tab == 1;
+            bottom-space: root.bottom-space;
+        }
+
+        LibraryPage {
+            visible: root.tab == 2;
+            bottom-space: root.bottom-space;
+        }
+
+        TracksPage {
+            x: Bridge.tracks-open ? 0 : root.width + 10px;
+            visible: self.x < root.width;
+            bottom-space: root.bottom-space;
+            animate x { duration: 240ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
+        }
+
+        if root.has-track: MiniPlayer {
+            y: root.height - Theme.tab-bar - Theme.mini-player;
+            height: Theme.mini-player;
+        }
+
+        Rectangle {
+            y: root.height - Theme.tab-bar;
+            height: Theme.tab-bar;
+            background: Theme.background.with-alpha(0.97);
+
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                for tab[index] in [
+                    { icon: Icons.home, label: "Home" },
+                    { icon: Icons.search, label: "Search" },
+                    { icon: Icons.library, label: "Library" },
+                ]: TabButton {
+                    icon: tab.icon;
+                    label: tab.label;
+                    selected: root.tab == index;
+                    clicked => {
+                        root.tab = index;
+                        Bridge.tracks-open = false;
+                    }
+                }
+            }
+        }
+    }
+
+    NowPlaying {
+        y: Bridge.now-open ? 0 : root.height + 10px;
+        visible: self.y < root.height;
+        height: root.height;
+        settled: root.now-settled;
+        animate y { duration: 300ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
+    }
+
+    Timer {
+        interval: 320ms;
+        running: Bridge.now-open != root.now-settled;
+        triggered => {
+            root.now-settled = Bridge.now-open;
+            Bridge.action("now-open", Bridge.now-open ? 1 : 0, "");
+        }
+    }
+
+    Lyrics {
+        y: Bridge.lyrics-open ? 0 : root.height + 10px;
+        visible: self.y < root.height;
+        height: root.height;
+        animate y { duration: 280ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
+    }
+
+    ActionSheet { }
+
+    if Bridge.picker-open: PlaylistPicker { }
+
+    if Bridge.toast-visible: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: root.height - 170px;
+        width: toast-text.preferred-width + 32px;
+        height: 36px;
+        border-radius: 18px;
+        background: #ffffff;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #00000090;
+
+        toast-text := Text {
+            text: Bridge.toast;
+            color: #000000;
+            font-size: 13px;
+            font-weight: 700;
+        }
+    }
+
+    if Bridge.screen != "main": Login { }
+}

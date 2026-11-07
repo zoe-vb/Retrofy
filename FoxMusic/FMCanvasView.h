@@ -14,5 +14,7 @@
 - (void)showVideoAtURL:(NSURL *)url;
 
 @property (nonatomic) BOOL playing;
+// Called when the clip starts showing, or couldn't be shown after all.
+@property (copy) void (^showingHandler)(BOOL showing);
 
 @end
