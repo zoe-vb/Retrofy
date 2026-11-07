@@ -8,7 +8,7 @@
 
 #import "FMURLConnection.h"
 
-#ifdef FM_IOS4
+#ifdef FM_LIBRESPOT
 #import "fmlibrespot.h"
 
 // Every request does a full TLS handshake, more than a few at once is too much for an armv6 CPU.

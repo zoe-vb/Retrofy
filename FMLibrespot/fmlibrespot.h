@@ -104,6 +104,10 @@ bool fm_librespot_tracks(const char *uris_json, char **json_out, char **error_ou
 /// out: a JSON array of {id, name, description, owner, image, length}. Blocks, free the JSON with fm_librespot_free_string.
 bool fm_librespot_rootlist(char **json_out, char **error_out);
 
+/// The address of a track's Canvas (the short looping clip Spotify shows instead of the cover). Returns false with
+/// "No Canvas" in error_out when it has none. Blocks, free the URL with fm_librespot_free_string.
+bool fm_librespot_canvas(const char *track_uri, char **url_out, char **error_out);
+
 /// Spotify's lyrics for a track URI, as JSON: lyrics.syncType (LINE_SYNCED or UNSYNCED), lyrics.lines (startTimeMs,
 /// words) and colors. Returns false with "No lyrics" in error_out when there are none. Blocks, free the JSON with
 /// fm_librespot_free_string.

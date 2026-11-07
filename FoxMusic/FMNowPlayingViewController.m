@@ -16,6 +16,7 @@
 #import "FMTheme.h"
 #import "FMTrackActions.h"
 #ifndef FM_IOS4
+#import "FMCanvasView.h"
 #import "FMDJSession.h"
 #import "FMLyricsViewController.h"
 #import "FMSpotifyContent.h"
@@ -55,6 +56,7 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     FMSpotifyTrack *_checkedTrack;
 
 #ifndef FM_IOS4
+    FMCanvasView *_canvasView;
     UIButton *_lyricsButton;
     // The track whose lyrics were looked up for the button.
     FMSpotifyTrack *_lyricsTrack;
@@ -219,6 +221,11 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:_likeButton];
 
 #ifndef FM_IOS4
+    // Under everything else on the cover.
+    _canvasView = [[FMCanvasView alloc] initWithFrame:_coverView.bounds];
+    _canvasView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_coverView insertSubview:_canvasView atIndex:0];
+
     _commentaryLabel = [[UILabel alloc] init];
     _commentaryLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
     _commentaryLabel.textColor = [FMTheme textColor];
@@ -320,6 +327,9 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     // The timer keeps this controller alive until it's invalidated.
     [_progressTimer invalidate];
     _progressTimer = nil;
+#ifndef FM_IOS4
+    _canvasView.playing = NO;
+#endif
 }
 
 #pragma mark - Updating
@@ -368,10 +378,15 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     NSString *commentary = [[FMDJSession sharedSession] commentaryForTrack:track];
     _commentaryLabel.text = commentary ? [NSString stringWithFormat:@"  DJ: %@", commentary] : nil;
     _commentaryLabel.hidden = !commentary;
+    _canvasView.playing = [[FMPlayer sharedPlayer] isPlaying];
 
     if (track && [track isEqual:_lyricsTrack]) return;
     _lyricsTrack = track;
     _lyricsButton.hidden = YES;
+    [_canvasView showVideoAtURL:nil];
+    [FMSpotifyContent loadCanvasForTrack:track completion:^(NSURL *fileURL) {
+        if (track == _lyricsTrack) [_canvasView showVideoAtURL:fileURL];
+    }];
     [FMSpotifyContent loadLyricsForTrack:track completion:^(NSDictionary *lyrics) {
         if (track == _lyricsTrack) _lyricsButton.hidden = !lyrics;
     }];

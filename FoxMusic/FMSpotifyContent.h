@@ -21,6 +21,9 @@
 // Spotify's lyrics response, nil when the track has none. Cached per track.
 + (void)loadLyricsForTrack:(FMSpotifyTrack *)track completion:(void(^)(NSDictionary *lyrics))completion;
 
+// The local copy of a track's Canvas, nil when it has none.
++ (void)loadCanvasForTrack:(FMSpotifyTrack *)track completion:(void(^)(NSURL *fileURL))completion;
+
 // A page of the AI DJ. pageURL nil starts a session.
 + (void)loadDJPage:(NSString *)pageURL completion:(void(^)(NSDictionary *page, NSError *error))completion;
 

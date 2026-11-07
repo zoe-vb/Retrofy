@@ -1089,3 +1089,109 @@ pub unsafe extern "C" fn fm_librespot_rootlist(json_out: *mut *mut c_char, error
         }
     }
 }
+
+/// Splits a protobuf message into (field number, varint value, bytes of a length-delimited field). librespot's
+/// Canvas definitions leave out the request and the response's list, so these are read and written by hand.
+fn protobuf_fields(mut data: &[u8]) -> Vec<(u64, u64, &[u8])> {
+    fn read_varint(data: &mut &[u8]) -> Option<u64> {
+        let mut value = 0u64;
+        for shift in (0..64).step_by(7) {
+            let (&byte, rest) = data.split_first()?;
+            *data = rest;
+            value |= u64::from(byte & 0x7F) << shift;
+            if byte & 0x80 == 0 {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    let mut fields = Vec::new();
+    while let Some(key) = read_varint(&mut data) {
+        let (field, wire_type) = (key >> 3, key & 7);
+        match wire_type {
+            0 => match read_varint(&mut data) {
+                Some(value) => fields.push((field, value, &[][..])),
+                None => break,
+            },
+            1 | 5 => {
+                let length = if wire_type == 1 { 8 } else { 4 };
+                if data.len() < length {
+                    break;
+                }
+                data = &data[length..];
+            }
+            2 => {
+                let Some(length) = read_varint(&mut data).map(|length| length as usize) else { break };
+                if data.len() < length {
+                    break;
+                }
+                let (value, rest) = data.split_at(length);
+                fields.push((field, 0, value));
+                data = rest;
+            }
+            _ => break,
+        }
+    }
+    fields
+}
+
+/// A protobuf field holding `value`, for fields below 16 and values under 128 bytes.
+fn protobuf_bytes_field(field: u8, value: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![field << 3 | 2, value.len() as u8];
+    bytes.extend_from_slice(value);
+    bytes
+}
+
+/// The address of a track's Canvas, the short looping clip Spotify shows instead of the cover. Returns false with
+/// "No Canvas" in error_out when it has none. Blocks, free the URL with fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_canvas(track_uri: *const c_char, url_out: *mut *mut c_char, error_out: *mut *mut c_char) -> bool {
+    const CANVAS_TYPE_VIDEO: u64 = 1;
+    const CANVAS_TYPE_VIDEO_LOOPING_RANDOM: u64 = 3;
+
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let Some(uri) = str_arg(track_uri) else {
+        set_error(error_out, "Not a track");
+        return false;
+    };
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+
+    let mut headers = http::HeaderMap::new();
+    headers.insert(http::header::CONTENT_TYPE, http::HeaderValue::from_static("application/x-protobuf"));
+    let body = protobuf_bytes_field(1, &protobuf_bytes_field(1, uri.as_bytes()));
+    let response = state.runtime.block_on(session.spclient().request(&http::Method::POST, "/canvaz-cache/v0/canvases", Some(headers), Some(&body)));
+    let bytes = match response {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            set_error(error_out, format!("Couldn't look up the Canvas: {error}"));
+            return false;
+        }
+    };
+
+    for (field, _, canvas) in protobuf_fields(&bytes) {
+        if field != 1 {
+            continue;
+        }
+        let fields = protobuf_fields(canvas);
+        let is_video = fields.iter().any(|(field, value, _)| *field == 4 && (CANVAS_TYPE_VIDEO..=CANVAS_TYPE_VIDEO_LOOPING_RANDOM).contains(value));
+        let url = fields.iter().find(|(field, _, _)| *field == 2).map(|(_, _, url)| String::from_utf8_lossy(url).into_owned());
+        if let (true, Some(url)) = (is_video, url) {
+            if !url_out.is_null() {
+                *url_out = CString::new(url).unwrap_or_default().into_raw();
+            }
+            return true;
+        }
+    }
+    set_error(error_out, "No Canvas");
+    false
+}

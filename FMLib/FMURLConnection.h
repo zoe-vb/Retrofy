@@ -11,9 +11,9 @@
 #import "FMURLConnectionDelegate.h"
 #import "FMMutableURLQueryDictionary.h"
 
-#ifdef FM_IOS4
-// iOS 4 stops at TLS 1.0, which Spotify's servers refuse, so all requests go through the Rust library's
-// rustls. Calls back on the main thread, with nil when the request failed.
+#ifdef FM_LIBRESPOT
+// Through the Rust library's rustls. iOS 4 stops at TLS 1.0, which Spotify's servers refuse, so there all
+// requests go this way. Calls back on the main thread, with nil when the request failed.
 void FMSendRustlsRequest(NSString *method, NSURL *url, NSString *authorization, void (^callback)(NSData *data));
 #endif
 

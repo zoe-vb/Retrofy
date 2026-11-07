@@ -8,9 +8,14 @@
 
 #import "FMSpotifyContent.h"
 
+#import "FMURLConnection.h"
+
 #ifdef FM_LIBRESPOT
 #import "fmlibrespot.h"
 #endif
+
+// Canvases kept on disk, they're a few MB each.
+static const NSUInteger FMCanvasMaximumFiles = 10;
 
 @implementation FMSpotifyContent
 
@@ -99,6 +104,89 @@
         [cache setObject:found ? lyrics : [NSNull null] forKey:identifier];
         completion(found ? lyrics : nil);
     }];
+#else
+    completion(nil);
+#endif
+}
+
+#ifdef FM_LIBRESPOT
++ (NSString *)canvasDirectory
+{
+    NSString *caches = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+    NSString *directory = [caches stringByAppendingPathComponent:@"Canvas"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+    return directory;
+}
+
+// Keeps the most recently saved ones.
++ (void)trimCanvasFiles
+{
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSString *directory = [self canvasDirectory];
+    NSMutableArray *files = [NSMutableArray array];
+    for (NSString *name in [fileManager contentsOfDirectoryAtPath:directory error:nil]) {
+        NSString *path = [directory stringByAppendingPathComponent:name];
+        NSDate *date = [[fileManager attributesOfItemAtPath:path error:nil] fileModificationDate];
+        if (date) [files addObject:@{@"path": path, @"date": date}];
+    }
+    [files sortUsingComparator:^NSComparisonResult(NSDictionary *first, NSDictionary *second) {
+        return [[second objectForKey:@"date"] compare:[first objectForKey:@"date"]];
+    }];
+    for (NSUInteger index = FMCanvasMaximumFiles; index < files.count; index++) {
+        [fileManager removeItemAtPath:[[files objectAtIndex:index] objectForKey:@"path"] error:nil];
+    }
+}
+#endif
+
++ (void)loadCanvasForTrack:(FMSpotifyTrack *)track completion:(void (^)(NSURL *))completion
+{
+#ifdef FM_LIBRESPOT
+    static NSMutableSet *tracksWithoutCanvas;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        tracksWithoutCanvas = [NSMutableSet set];
+    });
+
+    NSString *identifier = track.identifier;
+    if (!identifier || [tracksWithoutCanvas containsObject:identifier]) {
+        completion(nil);
+        return;
+    }
+    NSString *path = [[[self canvasDirectory] stringByAppendingPathComponent:identifier] stringByAppendingPathExtension:@"mp4"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        completion([NSURL fileURLWithPath:path]);
+        return;
+    }
+
+    NSString *uri = [@"spotify:track:" stringByAppendingString:identifier];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        char *url = NULL;
+        char *error = NULL;
+        BOOL found = fm_librespot_canvas([uri UTF8String], &url, &error);
+        NSString *address = found ? [NSString stringWithUTF8String:url] : nil;
+        NSString *message = error ? [NSString stringWithUTF8String:error] : nil;
+        fm_librespot_free_string(url);
+        fm_librespot_free_string(error);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!address) {
+                if ([message isEqualToString:@"No Canvas"]) [tracksWithoutCanvas addObject:identifier];
+                else NSLog(@"%@", message);
+                completion(nil);
+                return;
+            }
+            FMSendRustlsRequest(@"GET", [NSURL URLWithString:address], nil, ^(NSData *data) {
+                // An MP4 has "ftyp" here, anything else is an error page.
+                BOOL isVideo = data.length > 8 && memcmp((const char *)data.bytes + 4, "ftyp", 4) == 0;
+                if (!isVideo || ![data writeToFile:path atomically:YES]) {
+                    completion(nil);
+                    return;
+                }
+                [self trimCanvasFiles];
+                completion([NSURL fileURLWithPath:path]);
+            });
+        });
+    });
 #else
     completion(nil);
 #endif
