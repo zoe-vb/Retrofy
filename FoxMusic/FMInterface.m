@@ -854,7 +854,8 @@ static void FMAction(const char *name, int index, const char *text)
         @"saved": [self savedValueForTrack:track],
         @"has_lyrics": @(_hasLyrics),
         @"has_video": @(_hasVideo),
-        @"has_cover": @(_sentCover != nil),
+        // A comparison is an int, which JSON would send as 1, not true.
+        @"has_cover": _sentCover ? @YES : @NO,
         @"tint": _tint ?: @"",
     }];
     [self updateProgress];
