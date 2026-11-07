@@ -8,6 +8,10 @@ cd "$(dirname "$0")"
 DEFINITIONS='$(inherited) FM_LIBRESPOT=1'
 if [ -n "$FM_DEBUG" ]; then DEFINITIONS="$DEFINITIONS FM_DEBUG=1"; fi
 
+# Xcode doesn't notice a new libfmlibrespot.a: libtool copies it into libFMTouch.a, which it then reuses, so the
+# app keeps the old Rust code and UI. Starting clean picks it up.
+rm -rf build
+
 xcodebuild -project FoxMusic.xcodeproj -target FoxMusic -configuration Release -sdk iphoneos \
     GCC_PREPROCESSOR_DEFINITIONS="$DEFINITIONS" \
     HEADER_SEARCH_PATHS='$(inherited) $(SRCROOT)/FMLibrespot' \
