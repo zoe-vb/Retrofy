@@ -142,7 +142,6 @@ static void FMLog(const char *message)
     NSURL *url = [[NSBundle mainBundle] URLForResource:@"test" withExtension:@"mp4"];
     _player = [AVPlayer playerWithURL:url];
     _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-    _player.muted = YES;
     AVPlayerLayer *layer = (AVPlayerLayer *)video.layer;
     layer.player = _player;
     layer.videoGravity = AVLayerVideoGravityResizeAspectFill;
