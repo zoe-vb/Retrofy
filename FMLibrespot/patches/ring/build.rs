@@ -91,6 +91,7 @@ const RING_SRCS: &[(&[&str], &str)] = &[
 
     (&[AARCH64, X86_64], "crypto/fipsmodule/ec/p256-nistz.c"),
 
+    (&[ARM], "crypto/armv6_neon_stubs.c"),
     (&[ARM], "crypto/fipsmodule/aes/asm/bsaes-armv7.pl"),
     (&[ARM], "crypto/fipsmodule/aes/asm/ghash-armv4.pl"),
     (&[ARM], "crypto/fipsmodule/aes/asm/vpaes-armv7.pl"),

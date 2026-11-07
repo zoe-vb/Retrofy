@@ -19,6 +19,8 @@
 
 #include "../internal.h"
 
+#if defined(__ARM_NEON__) || !defined(__APPLE__)
+
 
 #pragma GCC diagnostic ignored "-Wsign-conversion"
 
@@ -300,3 +302,5 @@ void CRYPTO_poly1305_finish_neon(struct poly1305_state_st *st, uint8_t mac[16]) 
   h->v[8] += c->v[8];
   fe1305x2_tobytearray(mac, h);
 }
+
+#endif

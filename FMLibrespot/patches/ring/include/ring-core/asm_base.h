@@ -80,7 +80,12 @@
 // defined because some OpenSSL assembly files would allow disabling the NEON
 // code entirely. I think we'd prefer to do that by lifting the dispatch to C
 // anyway.
+// FoxMusic patch: armv6 has no NEON, this leaves the NEON parts out of ring's Arm assembly.
+#if defined(__ARM_NEON__) || !defined(__APPLE__)
 #define __ARM_MAX_ARCH__ 8
+#else
+#define __ARM_MAX_ARCH__ 6
+#endif
 
 // Support macros for
 //   - Armv8.3-A Pointer Authentication and

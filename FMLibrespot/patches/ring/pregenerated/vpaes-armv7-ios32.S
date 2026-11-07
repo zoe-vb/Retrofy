@@ -3,7 +3,7 @@
 
 #include <ring-core/asm_base.h>
 
-#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM) && defined(__APPLE__)
+#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM) && defined(__APPLE__) && defined(__ARM_NEON__)
 .syntax	unified
 
 

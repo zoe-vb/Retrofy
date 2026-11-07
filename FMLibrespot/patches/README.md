@@ -33,6 +33,17 @@ routines on that target, so linking fails with undefined `_ring_core_0_17_14__*`
   (NEON comes from the armv7 and armv7s targets), and the symbols are aliased to their underscored Mach-O names,
   which is what ring's prefix header renames on Apple.
 
+- armv6 has no NEON, and ring never uses NEON on iOS anyway: its feature detection reports nothing for
+  32-bit Apple targets. So for armv6 the NEON code is left out and only the stubs that keep the linker
+  happy remain:
+  - `include/ring-core/asm_base.h`: `__ARM_MAX_ARCH__` is 6 without NEON, which removes the NEON parts of
+    the perlasm output.
+  - `x25519-asm-arm.S`, `poly1305_arm_asm.S`, `poly1305_arm.c`, `pregenerated/bsaes-armv7-ios32.S` and
+    `pregenerated/vpaes-armv7-ios32.S` only build with `__ARM_NEON__`. Regenerating those two pregenerated
+    files needs the `&& defined(__ARM_NEON__)` added back to their first `#if`.
+  - `crypto/armv6_neon_stubs.c` (added to `RING_SRCS`) defines the remaining NEON functions ring's Rust
+    code refers to. They trap if they're ever called.
+
 The assembly is the same BoringSSL code ring uses on 32-bit Arm Linux, assembled for Mach-O. It hasn't
 been tested on a device independently of FoxMusic: a successful TLS connection to Spotify exercises it.
 

@@ -19,7 +19,8 @@
 
 #include <ring-core/asm_base.h>
 
-#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM) && (defined(__ELF__) || defined(__APPLE__))
+// armv6 has no NEON, ring never calls this on iOS.
+#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM) && (defined(__ELF__) || defined(__APPLE__)) && defined(__ARM_NEON__)
 
 #if defined(__APPLE__)
 // Mach-O symbols carry a leading underscore, and that is the name ring's prefix header renames.
