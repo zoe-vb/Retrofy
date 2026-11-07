@@ -697,9 +697,6 @@ pub extern "C" fn fm_connect_set_repeat(mode: u32) {
     });
 }
 
-/// Track metadata requests sent at once while listing a playlist.
-const PLAYLIST_TRACK_REQUESTS: usize = 10;
-
 fn json_string(value: &str) -> String {
     let mut json = String::with_capacity(value.len() + 2);
     json.push('"');
@@ -807,38 +804,278 @@ pub unsafe extern "C" fn fm_librespot_playlist_tracks(
 
     let result: Result<String, String> = state.runtime.block_on(async move {
         let playlist = Playlist::get(&session, &uri).await.map_err(|e| format!("Couldn't load the playlist: {e}"))?;
-        let entries: Vec<SpotifyUri> = playlist.tracks().cloned().collect();
-        let total = entries.len();
-        let start = (offset as usize).min(total);
-        let end = start.saturating_add(limit.max(1) as usize).min(total);
+        let mut entries: Vec<SpotifyUri> = playlist.tracks().cloned().collect();
+        if entries.is_empty() {
+            // Mixes like Battle Mix are empty until played: Spotify builds them when the context is resolved.
+            entries = context_tracks(&session, &format!("spotify:playlist:{playlist_id}")).await.unwrap_or_default();
+        }
+        Ok(tracks_page_json(&session, &entries, offset, limit).await)
+    });
 
-        let mut items = Vec::new();
-        for chunk in entries[start..end].chunks(PLAYLIST_TRACK_REQUESTS) {
-            let requests: Vec<_> = chunk
+    match result {
+        Ok(json) => {
+            if !json_out.is_null() {
+                *json_out = CString::new(json).unwrap_or_default().into_raw();
+            }
+            true
+        }
+        Err(error) => {
+            set_error(error_out, error);
+            false
+        }
+    }
+}
+
+/// Spotify's lyrics for a track URI, as the JSON its own apps get (lyrics.lines with startTimeMs and
+/// words, lyrics.syncType LINE_SYNCED or UNSYNCED, and colors). Returns false with "No lyrics" in error_out
+/// when Spotify has none. Blocks, free the JSON with fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_lyrics(track_uri: *const c_char, json_out: *mut *mut c_char, error_out: *mut *mut c_char) -> bool {
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let Some(id) = str_arg(track_uri).and_then(|uri| uri.strip_prefix("spotify:track:")).and_then(|id| SpotifyId::from_base62(id).ok()) else {
+        set_error(error_out, "Not a track");
+        return false;
+    };
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+    match state.runtime.block_on(session.spclient().get_lyrics(&id)) {
+        Ok(bytes) if !bytes.is_empty() => {
+            if !json_out.is_null() {
+                *json_out = CString::new(String::from_utf8_lossy(&bytes).replace('\0', "")).unwrap_or_default().into_raw();
+            }
+            true
+        }
+        Ok(_) => {
+            set_error(error_out, "No lyrics");
+            false
+        }
+        Err(error) => {
+            // Spotify answers 404 for tracks without lyrics.
+            let message = error.to_string();
+            set_error(error_out, if message.contains("404") || message.to_lowercase().contains("not found") { "No lyrics".to_string() } else { message });
+            false
+        }
+    }
+}
+
+/// Tracks looked up per extended-metadata request. librespot allows 300 requests per 30 seconds to Spotify, shared
+/// with playback, so one request per track would run out on long lists.
+const TRACKS_PER_METADATA_REQUEST: usize = 50;
+
+/// Looks up `limit` of `entries` from `offset`, in batches, as JSON shaped like a Web API playlist items page:
+/// {"total", "next_offset" (or null), "next": null, "items": [{"track": {...}}]}.
+async fn tracks_page_json(session: &Session, entries: &[SpotifyUri], offset: u32, limit: u32) -> String {
+    use librespot::protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
+    use librespot::protocol::extension_kind::ExtensionKind;
+    use protobuf::{EnumOrUnknown, Message};
+
+    let total = entries.len();
+    let start = (offset as usize).min(total);
+    let end = start.saturating_add(limit.max(1) as usize).min(total);
+    let uris: Vec<String> = entries[start..end]
+        .iter()
+        .filter(|entry| matches!(entry, SpotifyUri::Track { .. }))
+        .filter_map(|entry| entry.to_uri().ok())
+        .collect();
+
+    let mut items = Vec::new();
+    for chunk in uris.chunks(TRACKS_PER_METADATA_REQUEST) {
+        let request = BatchedEntityRequest {
+            entity_request: chunk
                 .iter()
-                .filter(|entry| matches!(entry, SpotifyUri::Track { .. }))
-                .cloned()
-                .map(|entry| {
-                    let session = session.clone();
-                    tokio::spawn(async move { Track::get(&session, &entry).await })
+                .map(|uri| EntityRequest {
+                    entity_uri: uri.clone(),
+                    query: vec![ExtensionQuery { extension_kind: EnumOrUnknown::new(ExtensionKind::TRACK_V4), ..Default::default() }],
+                    ..Default::default()
                 })
-                .collect();
-            for request in requests {
-                match request.await {
-                    Ok(Ok(track)) => items.extend(track_json(&track).map(|json| format!("{{\"track\":{json}}}"))),
-                    Ok(Err(error)) => log::warn!("Leaving out a playlist track: {error}"),
-                    Err(error) => log::warn!("Playlist track request failed: {error}"),
+                .collect(),
+            ..Default::default()
+        };
+        let response = match session.spclient().get_extended_metadata(request).await {
+            Ok(response) => response,
+            Err(error) => {
+                log::warn!("Couldn't look up {} tracks: {error}", chunk.len());
+                continue;
+            }
+        };
+        let mut found = std::collections::HashMap::new();
+        for array in &response.extended_metadata {
+            for data in &array.extension_data {
+                let Some(any) = data.extension_data.as_ref() else { continue };
+                let Ok(message) = librespot::protocol::metadata::Track::parse_from_bytes(&any.value) else { continue };
+                let Ok(uri) = SpotifyUri::from_uri(&data.entity_uri) else { continue };
+                if let Ok(track) = Track::parse(&message, &uri) {
+                    found.insert(data.entity_uri.clone(), track);
                 }
             }
         }
+        // In the list's order; tracks Spotify has no metadata for are left out.
+        for uri in chunk {
+            if let Some(json) = found.get(uri).and_then(track_json) {
+                items.push(format!("{{\"track\":{json}}}"));
+            }
+        }
+    }
 
-        let next_offset = if end < total { end.to_string() } else { "null".to_string() };
-        Ok(format!(
-            "{{\"total\":{total},\"next_offset\":{next_offset},\"next\":null,\"items\":[{}]}}",
-            items.join(",")
-        ))
+    let next_offset = if end < total { end.to_string() } else { "null".to_string() };
+    format!("{{\"total\":{total},\"next_offset\":{next_offset},\"next\":null,\"items\":[{}]}}", items.join(","))
+}
+
+fn add_context_tracks(tracks: &mut Vec<SpotifyUri>, page: &librespot::protocol::context_page::ContextPage) {
+    tracks.extend(
+        page.tracks
+            .iter()
+            .filter_map(|track| SpotifyUri::from_uri(track.uri()).ok())
+            .filter(|uri| matches!(uri, SpotifyUri::Track { .. })),
+    );
+}
+
+/// The tracks of a context (a playlist Spotify builds when it's played, like Battle Mix),
+/// through Spotify's context service.
+async fn context_tracks(session: &Session, uri: &str) -> Result<Vec<SpotifyUri>, String> {
+    let context = session.spclient().get_context(uri).await.map_err(|e| format!("Couldn't load {uri}: {e}"))?;
+    let mut tracks = Vec::new();
+    for page in &context.pages {
+        add_context_tracks(&mut tracks, page);
+        // A page either has its tracks, or only a URL to load them from; either can continue at next_page_url.
+        let mut next = if page.tracks.is_empty() { page.page_url().to_string() } else { page.next_page_url().to_string() };
+        while !next.is_empty() {
+            let bytes = session.spclient().get_next_page(&next).await.map_err(|e| format!("Couldn't load {uri}: {e}"))?;
+            let page: librespot::protocol::context_page::ContextPage =
+                protobuf_json_mapping::parse_from_str(&String::from_utf8_lossy(&bytes)).map_err(|e| format!("Unreadable page of {uri}: {e}"))?;
+            add_context_tracks(&mut tracks, &page);
+            next = page.next_page_url().to_string();
+        }
+    }
+    Ok(tracks)
+}
+
+/// Spotify's AI DJ plays as this context. Resolving it gives no tracks, only the URL of a DJ session.
+const DJ_CONTEXT: &str = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq";
+
+/// A page of the AI DJ (lexicon-session-provider, what Spotify's apps use for it): a context JSON whose page holds
+/// about five picks and a next_page_url to continue at. The DJ's commentary is on the tracks' metadata as SSML
+/// (narration.intro.ssml before a track, narration.outro.ssml after it); Spotify's apps turn it into speech with
+/// their own text to speech, its audio isn't part of the session. `page_url` NULL starts a session. Blocks, free
+/// the JSON with fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_dj_session(page_url: *const c_char, json_out: *mut *mut c_char, error_out: *mut *mut c_char) -> bool {
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+    let url = match str_arg(page_url) {
+        Some(url) if !url.is_empty() => url.to_string(),
+        _ => format!("hm://lexicon-session-provider/context-resolve/v2/session?contextUri={DJ_CONTEXT}"),
+    };
+    match state.runtime.block_on(session.spclient().get_next_page(&url)) {
+        Ok(bytes) => {
+            if !json_out.is_null() {
+                *json_out = CString::new(String::from_utf8_lossy(&bytes).replace('\0', "")).unwrap_or_default().into_raw();
+            }
+            true
+        }
+        Err(error) => {
+            set_error(error_out, format!("Couldn't start the DJ: {error}"));
+            false
+        }
+    }
+}
+
+/// Track metadata for a JSON array of track URIs, looked up in batches, shaped like fm_librespot_playlist_tracks'
+/// pages. Blocks, free the JSON with fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_tracks(uris_json: *const c_char, json_out: *mut *mut c_char, error_out: *mut *mut c_char) -> bool {
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let entries: Vec<SpotifyUri> = str_arg(uris_json)
+        .unwrap_or("[]")
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(',')
+        .filter_map(|uri| SpotifyUri::from_uri(uri.trim().trim_matches('"')).ok())
+        .collect();
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+    let count = entries.len() as u32;
+    let json = state.runtime.block_on(tracks_page_json(&session, &entries, 0, count.max(1)));
+    if !json_out.is_null() {
+        *json_out = CString::new(json).unwrap_or_default().into_raw();
+    }
+    true
+}
+
+
+/// Every playlist in the user's library (Your Library's "rootlist"), with Spotify's own playlists like Daily Mix,
+/// Discover Weekly or Your Top Songs 2023 that the Web API leaves out for development mode apps. JSON array of
+/// {"id", "name", "description", "owner", "image", "length"}. Folders are flattened. Blocks, free the JSON with
+/// fm_librespot_free_string.
+#[no_mangle]
+pub unsafe extern "C" fn fm_librespot_rootlist(json_out: *mut *mut c_char, error_out: *mut *mut c_char) -> bool {
+    use protobuf::Message;
+    let Some(state) = state() else {
+        set_error(error_out, "librespot isn't initialised");
+        return false;
+    };
+    let session = match state.session() {
+        Ok((session, _)) => session,
+        Err(error) => {
+            set_error(error_out, error);
+            return false;
+        }
+    };
+    let result: Result<String, String> = state.runtime.block_on(async {
+        let bytes = session.spclient().get_rootlist(0, Some(1000)).await.map_err(|e| format!("Couldn't load Your Library: {e}"))?;
+        let list = librespot::protocol::playlist4_external::SelectedListContent::parse_from_bytes(&bytes).map_err(|e| format!("Unreadable library: {e}"))?;
+        let Some(contents) = list.contents.as_ref() else { return Ok("[]".to_string()) };
+        let mut playlists = Vec::new();
+        for (index, item) in contents.items.iter().enumerate() {
+            let Some(id) = item.uri().strip_prefix("spotify:playlist:") else { continue };
+            let meta = contents.meta_items.get(index);
+            let attributes = meta.and_then(|meta| meta.attributes.as_ref());
+            let image = attributes
+                .and_then(|attributes| {
+                    attributes
+                        .picture_size
+                        .iter()
+                        .find(|size| size.target_name() == "large" || size.target_name() == "default")
+                        .or(attributes.picture_size.first())
+                        .map(|size| size.url().to_string())
+                })
+                .unwrap_or_default();
+            playlists.push(format!(
+                "{{\"id\":{},\"name\":{},\"description\":{},\"owner\":{},\"image\":{},\"length\":{}}}",
+                json_string(id),
+                json_string(attributes.map(|a| a.name()).unwrap_or("")),
+                json_string(attributes.map(|a| a.description()).unwrap_or("")),
+                json_string(meta.map(|m| m.owner_username()).unwrap_or("")),
+                json_string(&image),
+                meta.map(|m| m.length()).unwrap_or(0)
+            ));
+        }
+        Ok(format!("[{}]", playlists.join(",")))
     });
-
     match result {
         Ok(json) => {
             if !json_out.is_null() {

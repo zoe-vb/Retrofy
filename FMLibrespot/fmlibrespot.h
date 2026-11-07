@@ -96,6 +96,25 @@ void fm_connect_set_repeat(uint32_t mode);
 /// fm_librespot_free_string.
 bool fm_librespot_playlist_tracks(const char *playlist_id, uint32_t offset, uint32_t limit, char **json_out, char **error_out);
 
+/// Track metadata for a JSON array of track URIs (looked up in batches), shaped like fm_librespot_playlist_tracks'
+/// pages. Blocks, free the JSON with fm_librespot_free_string.
+bool fm_librespot_tracks(const char *uris_json, char **json_out, char **error_out);
+
+/// Every playlist in Your Library, including Spotify's own (Daily Mix, Your Top Songs 2023, ...) that the Web API leaves
+/// out: a JSON array of {id, name, description, owner, image, length}. Blocks, free the JSON with fm_librespot_free_string.
+bool fm_librespot_rootlist(char **json_out, char **error_out);
+
+/// Spotify's lyrics for a track URI, as JSON: lyrics.syncType (LINE_SYNCED or UNSYNCED), lyrics.lines (startTimeMs,
+/// words) and colors. Returns false with "No lyrics" in error_out when there are none. Blocks, free the JSON with
+/// fm_librespot_free_string.
+bool fm_librespot_lyrics(const char *track_uri, char **json_out, char **error_out);
+
+/// A page of Spotify's AI DJ: a context JSON with about five picks (pages[0].tracks) and pages[0].next_page_url to
+/// continue at. The commentary is SSML on the tracks' metadata (narration.intro.ssml, narration.outro.ssml); its
+/// audio isn't part of the session. page_url NULL starts a session. Blocks, free the JSON with
+/// fm_librespot_free_string.
+bool fm_librespot_dj_session(const char *page_url, char **json_out, char **error_out);
+
 /// Receives the token response JSON, with the client ID the user entered added as "client_id" (success), or
 /// an error message, on a background thread.
 typedef void (*fm_webapi_login_callback)(void *context, bool success, const char *detail);

@@ -9,6 +9,7 @@
 #import "FMSpotifyPlaylistTableViewController.h"
 #import "FMTheme.h"
 #import "FMSpotifyLibrary.h"
+#import "FMSpotifyContent.h"
 #ifdef FM_IOS4
 #import "FMSpotifyTrackTableViewController.h"
 #endif
@@ -101,6 +102,7 @@ static const CGFloat FMPlaylistThumbnailSize = 44;
             self.playlists = playlists;
             [[self tableView] reloadData];
             [self loadMorePlaylists];
+            [self addSpotifyMadePlaylists];
         } whenError:^(NSError *error){
             [[self appDelegate] displayError:error];
         }];
@@ -110,6 +112,20 @@ static const CGFloat FMPlaylistThumbnailSize = 44;
     }
     
     [[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+}
+
+// The Web API leaves these out, Your Library through librespot has them.
+- (void)addSpotifyMadePlaylists
+{
+    if (![[self appDelegate] librespotHasLogin]) return;
+    FMSpotifyPlaylistArray *playlists = self.playlists;
+    [FMSpotifyContent loadLibraryPlaylists:^(NSArray *libraryPlaylists, NSError *error) {
+        if (playlists != self.playlists) return;
+        for (FMSpotifyPlaylist *playlist in libraryPlaylists) {
+            if (playlist.isSpotifyMade && ![playlists.items containsObject:playlist]) [playlists.items addObject:playlist];
+        }
+        [[self tableView] reloadData];
+    }];
 }
 
 - (void)loadMorePlaylists

@@ -6,9 +6,12 @@ Music client for Legacy iOS (Requires a premium account)
 
 - iOS 6+
 - armv7 and armv7s (iPhone 3GS and newer)
-- Spotify playback
+- Spotify playback, and Spotify Connect
 - Album art
 - Search
+- Home, with Spotify's Made For You playlists
+- Lyrics
+- AI DJ, with its commentary as text
 - Lock screen and control center
 
 App icons made by u/AmadeoOOFDeReddit

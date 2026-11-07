@@ -20,6 +20,7 @@ typedef enum {
     // Add to Liked Songs: a plus in a circle. Added: a check in a filled circle.
     FMIconAdd,
     FMIconAdded,
+    FMIconHome,
 } FMIcon;
 
 @interface FMTheme : NSObject
@@ -46,6 +47,8 @@ typedef enum {
 + (UIImage *)playlistPlaceholderWithSize:(CGFloat)size;
 // Spotify's Liked Songs cover: a purple to green gradient with a white heart.
 + (UIImage *)likedSongsArtworkWithSize:(CGFloat)size;
+// The AI DJ's cover: a blue to purple gradient with sound bars.
++ (UIImage *)djArtworkWithSize:(CGFloat)size;
 
 // From tableView:willDisplayCell:forRowAtIndexPath:, iOS 6 ignores cell colors set any earlier.
 + (void)styleCell:(UITableViewCell *)cell;

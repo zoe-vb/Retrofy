@@ -31,10 +31,20 @@
         }
         if (smallestImage) self.imageURL = [NSURL URLWithString:[smallestImage objectForKey:@"url"]];
 
+        // An object from the Web API, a string from librespot's Your Library.
+        id owner = [dictionary objectForKey:@"owner"];
+        if ([owner isKindOfClass:[NSDictionary class]]) owner = [owner objectForKey:@"id"];
+        if ([owner isKindOfClass:[NSString class]]) self.ownerID = owner;
+
         if (![self.name isKindOfClass:[NSString class]]) self.name = nil;
         if (![self.description isKindOfClass:[NSString class]]) self.description = nil;
     }
     return self;
+}
+
+- (BOOL)isSpotifyMade
+{
+    return [self.ownerID isEqualToString:@"spotify"];
 }
 
 - (NSUInteger)hash

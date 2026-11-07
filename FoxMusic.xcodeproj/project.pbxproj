@@ -111,6 +111,10 @@
 		0A77DDF72C344814002D9FC3 /* spotify.png in Resources */ = {isa = PBXBuildFile; fileRef = 0A77DDF52C344814002D9FC3 /* spotify.png */; };
 		0A77DDFA2C345729002D9FC3 /* FMSpotifyTrackViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0A77DDF92C345728002D9FC3 /* FMSpotifyTrackViewController.m */; };
 		0AF0E1A32F9A100000C0FFEE /* FMTheme.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1A22F9A100000C0FFEE /* FMTheme.m */; };
+		0AF0E1BE2F9A100000C0FFEE /* FMHomeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1BD2F9A100000C0FFEE /* FMHomeViewController.m */; };
+		0AF0E1BB2F9A100000C0FFEE /* FMLyricsViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1BA2F9A100000C0FFEE /* FMLyricsViewController.m */; };
+		0AF0E1B82F9A100000C0FFEE /* FMDJSession.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1B72F9A100000C0FFEE /* FMDJSession.m */; };
+		0AF0E1B52F9A100000C0FFEE /* FMSpotifyContent.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1B42F9A100000C0FFEE /* FMSpotifyContent.m */; };
 		0AF0E1AF2F9A100000C0FFEE /* FMTrackActions.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1AE2F9A100000C0FFEE /* FMTrackActions.m */; };
 		0AF0E1AC2F9A100000C0FFEE /* FMSpotifyLibrary.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1AB2F9A100000C0FFEE /* FMSpotifyLibrary.m */; };
 		0AF0E1A92F9A100000C0FFEE /* FMNowPlayingViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0AF0E1A82F9A100000C0FFEE /* FMNowPlayingViewController.m */; };
@@ -351,6 +355,14 @@
 		0A77DDF92C345728002D9FC3 /* FMSpotifyTrackViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMSpotifyTrackViewController.m; sourceTree = "<group>"; };
 		0AF0E1A12F9A100000C0FFEE /* FMTheme.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMTheme.h; sourceTree = "<group>"; };
 		0AF0E1A22F9A100000C0FFEE /* FMTheme.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMTheme.m; sourceTree = "<group>"; };
+		0AF0E1BC2F9A100000C0FFEE /* FMHomeViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMHomeViewController.h; sourceTree = "<group>"; };
+		0AF0E1BD2F9A100000C0FFEE /* FMHomeViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMHomeViewController.m; sourceTree = "<group>"; };
+		0AF0E1B92F9A100000C0FFEE /* FMLyricsViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMLyricsViewController.h; sourceTree = "<group>"; };
+		0AF0E1BA2F9A100000C0FFEE /* FMLyricsViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMLyricsViewController.m; sourceTree = "<group>"; };
+		0AF0E1B62F9A100000C0FFEE /* FMDJSession.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMDJSession.h; sourceTree = "<group>"; };
+		0AF0E1B72F9A100000C0FFEE /* FMDJSession.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMDJSession.m; sourceTree = "<group>"; };
+		0AF0E1B32F9A100000C0FFEE /* FMSpotifyContent.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMSpotifyContent.h; sourceTree = "<group>"; };
+		0AF0E1B42F9A100000C0FFEE /* FMSpotifyContent.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMSpotifyContent.m; sourceTree = "<group>"; };
 		0AF0E1AD2F9A100000C0FFEE /* FMTrackActions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMTrackActions.h; sourceTree = "<group>"; };
 		0AF0E1AE2F9A100000C0FFEE /* FMTrackActions.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FMTrackActions.m; sourceTree = "<group>"; };
 		0AF0E1AA2F9A100000C0FFEE /* FMSpotifyLibrary.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FMSpotifyLibrary.h; sourceTree = "<group>"; };
@@ -875,6 +887,14 @@
 				0A77DDF92C345728002D9FC3 /* FMSpotifyTrackViewController.m */,
 				0AF0E1A12F9A100000C0FFEE /* FMTheme.h */,
 				0AF0E1A22F9A100000C0FFEE /* FMTheme.m */,
+				0AF0E1BC2F9A100000C0FFEE /* FMHomeViewController.h */,
+				0AF0E1BD2F9A100000C0FFEE /* FMHomeViewController.m */,
+				0AF0E1B92F9A100000C0FFEE /* FMLyricsViewController.h */,
+				0AF0E1BA2F9A100000C0FFEE /* FMLyricsViewController.m */,
+				0AF0E1B62F9A100000C0FFEE /* FMDJSession.h */,
+				0AF0E1B72F9A100000C0FFEE /* FMDJSession.m */,
+				0AF0E1B32F9A100000C0FFEE /* FMSpotifyContent.h */,
+				0AF0E1B42F9A100000C0FFEE /* FMSpotifyContent.m */,
 				0AF0E1AD2F9A100000C0FFEE /* FMTrackActions.h */,
 				0AF0E1AE2F9A100000C0FFEE /* FMTrackActions.m */,
 				0AF0E1AA2F9A100000C0FFEE /* FMSpotifyLibrary.h */,
@@ -1359,6 +1379,10 @@
 				0ACB51992C3392CB004CA3E6 /* FMSpotifyContinuableArray.m in Sources */,
 				0A77DDFA2C345729002D9FC3 /* FMSpotifyTrackViewController.m in Sources */,
 				0AF0E1A32F9A100000C0FFEE /* FMTheme.m in Sources */,
+				0AF0E1BE2F9A100000C0FFEE /* FMHomeViewController.m in Sources */,
+				0AF0E1BB2F9A100000C0FFEE /* FMLyricsViewController.m in Sources */,
+				0AF0E1B82F9A100000C0FFEE /* FMDJSession.m in Sources */,
+				0AF0E1B52F9A100000C0FFEE /* FMSpotifyContent.m in Sources */,
 				0AF0E1AF2F9A100000C0FFEE /* FMTrackActions.m in Sources */,
 				0AF0E1AC2F9A100000C0FFEE /* FMSpotifyLibrary.m in Sources */,
 				0AF0E1A92F9A100000C0FFEE /* FMNowPlayingViewController.m in Sources */,

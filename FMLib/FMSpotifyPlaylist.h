@@ -20,6 +20,9 @@
 @property NSString *color;
 // The smallest cover image, for thumbnails.
 @property NSURL *imageURL;
+@property NSString *ownerID;
+// Daily Mixes, Discover Weekly and the like. The Web API refuses their tracks to development mode apps.
+@property (readonly, nonatomic) BOOL isSpotifyMade;
 
 - (id)initWithDictionary:(NSDictionary *)dictionary;
 

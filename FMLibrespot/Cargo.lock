@@ -569,6 +569,8 @@ dependencies = [
  "futures-util",
  "librespot",
  "log",
+ "protobuf",
+ "protobuf-json-mapping",
  "rand 0.9.5",
  "rustls 0.23.46",
  "sha2",

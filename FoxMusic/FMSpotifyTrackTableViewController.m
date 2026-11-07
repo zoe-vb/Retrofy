@@ -52,6 +52,11 @@ static NSMutableSet *FMLibrespotLoadingPlaylists;
     if ([tracks count] > 0 && ![tracks hasNext]) return;
     
     FMSpotifyPlaylist *playlist = self.playlist;
+    // Playlists from Your Library have no Web API address, and it refuses Spotify's own ones anyway.
+    if ((playlist.isSpotifyMade || !tracks.href) && tracks == playlist.tracks && [[self appDelegate] librespotAvailable]) {
+        [self loadTracksWithLibrespot:playlist offset:tracks.count];
+        return;
+    }
     [[[self appDelegate] spotifyClient] continueArray:tracks withOnSuccess:^(FMSpotifyContinuableArray *newTracks){
         [[self tableView] reloadData];
         if ([newTracks hasNext] && tracks == self.playlist.tracks) [self loadTracks:tracks];

@@ -164,6 +164,22 @@
             }
             break;
         }
+        case FMIconHome: {
+            [path moveToPoint:CGPointMake(0.5 * s, 0.12 * s)];
+            [path addLineToPoint:CGPointMake(0.92 * s, 0.5 * s)];
+            [path addLineToPoint:CGPointMake(0.78 * s, 0.5 * s)];
+            [path addLineToPoint:CGPointMake(0.78 * s, 0.88 * s)];
+            [path addLineToPoint:CGPointMake(0.58 * s, 0.88 * s)];
+            [path addLineToPoint:CGPointMake(0.58 * s, 0.62 * s)];
+            [path addLineToPoint:CGPointMake(0.42 * s, 0.62 * s)];
+            [path addLineToPoint:CGPointMake(0.42 * s, 0.88 * s)];
+            [path addLineToPoint:CGPointMake(0.22 * s, 0.88 * s)];
+            [path addLineToPoint:CGPointMake(0.22 * s, 0.5 * s)];
+            [path addLineToPoint:CGPointMake(0.08 * s, 0.5 * s)];
+            [path closePath];
+            [path fill];
+            break;
+        }
         case FMIconAdd: {
             UIBezierPath *circle = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(0.12 * s, 0.12 * s, 0.76 * s, 0.76 * s)];
             circle.lineWidth = 0.06 * s;
@@ -252,6 +268,25 @@
         [heart closePath];
         [[UIColor whiteColor] setFill];
         [heart fill];
+    }];
+}
+
++ (UIImage *)djArtworkWithSize:(CGFloat)size
+{
+    return [self thumbnailWithSize:size drawing:^(CGRect rect){
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        CGFloat components[] = {0.1, 0.55, 0.95, 1, 0.55, 0.2, 0.9, 1};
+        CGGradientRef gradient = CGGradientCreateWithColorComponents(colorSpace, components, NULL, 2);
+        CGContextDrawLinearGradient(UIGraphicsGetCurrentContext(), gradient, CGPointZero, CGPointMake(size, size), 0);
+        CGGradientRelease(gradient);
+        CGColorSpaceRelease(colorSpace);
+
+        [[UIColor whiteColor] setFill];
+        CGFloat heights[] = {0.2, 0.4, 0.6, 0.34, 0.5};
+        for (NSUInteger bar = 0; bar < 5; bar++) {
+            CGFloat height = heights[bar] * size;
+            UIRectFill(CGRectMake(size * (0.22 + 0.13 * bar), (size - height) / 2, size * 0.07, height));
+        }
     }];
 }
 

@@ -18,6 +18,9 @@ log = "0.4"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 # PKCE login for Retrofy's own client ID (src/webapi_login.rs). All already used by librespot.
+# Same versions librespot uses, for reading Your Library and pages of Spotify's context service.
+protobuf = "3.7.2"
+protobuf-json-mapping = "3.7.2"
 base64 = "0.22"
 rand = "0.9"
 sha2 = "0.10"

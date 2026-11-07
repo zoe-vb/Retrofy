@@ -9,11 +9,17 @@
 #import "FMNowPlayingViewController.h"
 
 #import <MediaPlayer/MediaPlayer.h>
+#import <QuartzCore/QuartzCore.h>
 
 #import "FMPlayer.h"
 #import "FMSpotifyLibrary.h"
 #import "FMTheme.h"
 #import "FMTrackActions.h"
+#ifndef FM_IOS4
+#import "FMDJSession.h"
+#import "FMLyricsViewController.h"
+#import "FMSpotifyContent.h"
+#endif
 
 // Room the controls below the cover need at least, the cover shrinks to leave it.
 static const CGFloat FMNowPlayingMinimumControlsHeight = 108;
@@ -47,6 +53,13 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     UIButton *_likeButton;
     // The track whose Liked Songs state was asked for, so it's only asked once.
     FMSpotifyTrack *_checkedTrack;
+
+#ifndef FM_IOS4
+    UIButton *_lyricsButton;
+    // The track whose lyrics were looked up for the button.
+    FMSpotifyTrack *_lyricsTrack;
+    UILabel *_commentaryLabel;
+#endif
 }
 @end
 
@@ -205,6 +218,26 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     [_likeButton addTarget:self action:@selector(likeTapped:) forControlEvents:UIControlEventTouchUpInside];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithCustomView:_likeButton];
 
+#ifndef FM_IOS4
+    _commentaryLabel = [[UILabel alloc] init];
+    _commentaryLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
+    _commentaryLabel.textColor = [FMTheme textColor];
+    _commentaryLabel.font = [UIFont systemFontOfSize:13];
+    _commentaryLabel.numberOfLines = 3;
+    _commentaryLabel.hidden = YES;
+    [_coverView addSubview:_commentaryLabel];
+
+    // Only shown when the track has lyrics.
+    _lyricsButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    _lyricsButton.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
+    _lyricsButton.titleLabel.font = [UIFont boldSystemFontOfSize:13];
+    _lyricsButton.layer.cornerRadius = 13;
+    [_lyricsButton setTitle:@"Lyrics" forState:UIControlStateNormal];
+    [_lyricsButton addTarget:self action:@selector(showLyrics:) forControlEvents:UIControlEventTouchUpInside];
+    _lyricsButton.hidden = YES;
+    [_coverView addSubview:_lyricsButton];
+#endif
+
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(playerStateDidChange:) name:FMPlayerStateDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(updateLikeButton) name:FMSpotifyLibraryDidChangeNotification object:nil];
 }
@@ -218,6 +251,10 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
     _coverView.frame = CGRectMake(round((size.width - coverSide) / 2), 0, coverSide, coverSide);
     _spinner.center = CGPointMake(coverSide / 2, coverSide / 2);
 
+#ifndef FM_IOS4
+    _commentaryLabel.frame = CGRectMake(0, coverSide - 58, coverSide, 58);
+    _lyricsButton.frame = CGRectMake(coverSide - 72, FMNowPlayingScrubberHeight + 8, 64, 26);
+#endif
     _scrubberBar.frame = CGRectMake(0, 0, coverSide, FMNowPlayingScrubberHeight);
     _repeatButton.frame = CGRectMake(0, 0, 44, FMNowPlayingScrubberHeight);
     _shuffleButton.frame = CGRectMake(coverSide - 44, 0, 44, FMNowPlayingScrubberHeight);
@@ -318,7 +355,33 @@ static const CGFloat FMNowPlayingScrubberHeight = 44;
 
     [self updateLikeButton];
     [self updateProgress];
+#ifndef FM_IOS4
+    [self updateTrackExtras];
+#endif
 }
+
+#ifndef FM_IOS4
+- (void)updateTrackExtras
+{
+    FMSpotifyTrack *track = [[FMPlayer sharedPlayer] currentTrack];
+
+    NSString *commentary = [[FMDJSession sharedSession] commentaryForTrack:track];
+    _commentaryLabel.text = commentary ? [NSString stringWithFormat:@"  DJ: %@", commentary] : nil;
+    _commentaryLabel.hidden = !commentary;
+
+    if (track && [track isEqual:_lyricsTrack]) return;
+    _lyricsTrack = track;
+    _lyricsButton.hidden = YES;
+    [FMSpotifyContent loadLyricsForTrack:track completion:^(NSDictionary *lyrics) {
+        if (track == _lyricsTrack) _lyricsButton.hidden = !lyrics;
+    }];
+}
+
+- (void)showLyrics:(id)sender
+{
+    [self.navigationController pushViewController:[[FMLyricsViewController alloc] init] animated:YES];
+}
+#endif
 
 - (void)updateLikeButton
 {
