@@ -3,8 +3,9 @@
 set -e
 cd "$(dirname "$0")"
 
+SDK=$(xcrun -sdk iphoneos --show-sdk-path)
 mkdir -p SlintTest.app
-xcrun -sdk iphoneos clang -arch armv7 -arch armv7s -miphoneos-version-min=6.0 -fobjc-arc -O2 main.m \
+xcrun -sdk iphoneos clang -arch armv7 -arch armv7s -miphoneos-version-min=6.0 -isysroot "$SDK" -fobjc-arc -O2 -dead_strip main.m \
     ../build/libfmslint.a -framework UIKit -framework Foundation -framework QuartzCore -framework OpenGLES \
     -framework AVFoundation -framework CoreMedia -framework CoreText -framework CoreGraphics \
     -framework CoreFoundation -liconv -o SlintTest.app/SlintTest
