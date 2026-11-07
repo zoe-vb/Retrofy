@@ -15,6 +15,8 @@
 @property NSNumber *totalTracks;
 @property NSURL *href;
 @property NSURL *imageURL;
+// The smallest one Spotify has, for lists.
+@property NSURL *thumbnailURL;
 
 - (id)initWithDictionary:(NSDictionary *)dictionary;
 

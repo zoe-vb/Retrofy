@@ -26,6 +26,7 @@
 // Pictures in lists, in pixels. Now Playing's is bigger.
 static const CGFloat FMInterfaceThumbnailSize = 200;
 static const CGFloat FMInterfaceCoverSize = 640;
+static const CGFloat FMInterfaceRowCoverSize = 96;
 static const NSUInteger FMInterfaceMaximumCoverLoads = 4;
 // Shelves show again from what's loaded, and refresh when they're this old.
 static const NSTimeInterval FMInterfaceRefreshInterval = 600;
@@ -431,7 +432,7 @@ static void FMAction(const char *name, int index, const char *text)
     NSString *key = playlist.identifier ?: @"";
     [_playlists setObject:playlist forKey:key];
     NSString *cover = [playlist.imageURL absoluteString];
-    if (cover) [self requestCover:playlist.imageURL];
+    if (cover) [self requestCover:playlist.imageURL size:FMInterfaceThumbnailSize first:NO];
     return @{@"key": key, @"name": playlist.name ?: @"", @"subtitle": playlist.description.length ? playlist.description : @"Playlist", @"cover": cover ?: @""};
 }
 
@@ -495,11 +496,12 @@ static void FMAction(const char *name, int index, const char *text)
 
 #pragma mark - Pictures
 
-- (void)requestCover:(NSURL *)url
+// first is for what's on screen now, ahead of whatever is waiting.
+- (void)requestCover:(NSURL *)url size:(CGFloat)size first:(BOOL)first
 {
-    if ([_requestedCovers containsObject:url]) return;
+    if (!url || [_requestedCovers containsObject:url]) return;
     [_requestedCovers addObject:url];
-    [_coverQueue addObject:url];
+    [_coverQueue insertObject:@[url, @(size)] atIndex:first ? 0 : _coverQueue.count];
     [self loadNextCovers];
 }
 
@@ -507,14 +509,15 @@ static void FMAction(const char *name, int index, const char *text)
 - (void)loadNextCovers
 {
     while (_coverLoads < FMInterfaceMaximumCoverLoads && _coverQueue.count) {
-        NSURL *url = [_coverQueue objectAtIndex:0];
+        NSURL *url = [[_coverQueue objectAtIndex:0] objectAtIndex:0];
+        CGFloat size = [[[_coverQueue objectAtIndex:0] objectAtIndex:1] floatValue];
         [_coverQueue removeObjectAtIndex:0];
         _coverLoads++;
         [self.client getDataFromURL:url withCallback:^(NSData *data) {
             UIImage *image = data.length ? [UIImage imageWithData:data] : nil;
             dispatch_async(dispatch_get_main_queue(), ^{
                 _coverLoads--;
-                if (image) [self sendImage:image key:[url absoluteString] size:FMInterfaceThumbnailSize averageColor:NULL];
+                if (image) [self sendImage:image key:[url absoluteString] size:size averageColor:NULL];
                 else [_requestedCovers removeObject:url];
                 [self loadNextCovers];
             });
@@ -571,7 +574,7 @@ static void FMAction(const char *name, int index, const char *text)
 
 - (NSDictionary *)rowForTrack:(FMSpotifyTrack *)track
 {
-    return @{@"id": track.identifier ?: @"", @"title": track.name ?: @"", @"subtitle": [self subtitleForTrack:track], @"saved": [self savedValueForTrack:track]};
+    return @{@"id": track.identifier ?: @"", @"title": track.name ?: @"", @"subtitle": [self subtitleForTrack:track], @"saved": [self savedValueForTrack:track], @"cover": [track.album.thumbnailURL absoluteString] ?: @""};
 }
 
 - (BOOL)isLikedSongs:(FMSpotifyPlaylist *)playlist
@@ -666,6 +669,9 @@ static void FMAction(const char *name, int index, const char *text)
     if (_visibleTrack >= tracks.count) return;
     NSRange range = NSMakeRange(_visibleTrack, MIN(FMInterfaceVisibleRows, tracks.count - _visibleTrack));
     [[FMSpotifyLibrary sharedLibrary] requestSavedStateForTracks:[tracks.items subarrayWithRange:range]];
+    for (FMSpotifyTrack *track in [[tracks.items subarrayWithRange:range] reverseObjectEnumerator]) {
+        [self requestCover:track.album.thumbnailURL size:FMInterfaceRowCoverSize first:YES];
+    }
 }
 
 - (void)sendSavedStateForList:(NSString *)list tracks:(FMSpotifyTrackArray *)tracks from:(NSUInteger)from count:(NSUInteger)count
@@ -733,6 +739,9 @@ static void FMAction(const char *name, int index, const char *text)
         for (NSUInteger index = 0; index < tracks.count; index++) [rows addObject:[self rowForTrack:[tracks itemAtIndex:index]]];
         [self send:@"search" :@{@"items": rows, @"status": rows.count ? @"" : @"Nothing found"}];
         [[FMSpotifyLibrary sharedLibrary] requestSavedStateForTracks:tracks.items];
+        for (FMSpotifyTrack *track in [tracks.items reverseObjectEnumerator]) {
+            [self requestCover:track.album.thumbnailURL size:FMInterfaceRowCoverSize first:YES];
+        }
     } onError:^(NSError *error) {
         [self send:@"search" :@{@"items": @[], @"status": @""}];
         [[self appDelegate] displayError:error];
@@ -1001,6 +1010,10 @@ static void FMAction(const char *name, int index, const char *text)
         _canvasView.playing = player.isPlaying && _nowPlayingOpen;
     }
     else if ([name isEqualToString:@"retry-login"]) [self logInOrShowScreens];
+    else if ([name isEqualToString:@"log-out"]) {
+        [player pause];
+        [[self appDelegate] logOut];
+    }
     else NSLog(@"Interface: unknown action %@", name);
 }
 

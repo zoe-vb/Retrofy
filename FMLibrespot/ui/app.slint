@@ -24,6 +24,9 @@ export struct TrackRow {
     subtitle: string,
     // -1 not known yet, 0 not in Liked Songs, 1 in Liked Songs.
     saved: int,
+    cover-key: string,
+    cover: image,
+    has-cover: bool,
 }
 
 export global Bridge {
@@ -76,7 +79,9 @@ export global Bridge {
     in property <int> lyrics-line: -1;
 
     in-out property <bool> sheet-open;
-    in property <string> sheet-title;
+    in-out property <string> sheet-title;
+    // Offers logging out, instead of what to do with a liked track.
+    in-out property <bool> sheet-account;
     in-out property <bool> picker-open;
     in property <[Tile]> picker;
 
@@ -114,6 +119,7 @@ global Icons {
     out property <string> added: "M12 2.5 A9.5 9.5 0 1 0 12 21.5 A9.5 9.5 0 1 0 12 2.5 Z M10.5 16.5 L6.5 12.5 L8 11 L10.5 13.5 L16 8 L17.5 9.5 Z";
     out property <string> heart: "M12 21 C5 15 2 12 2 8 C2 5 4.5 3 7 3 C9 3 11 4 12 6 C13 4 15 3 17 3 C19.5 3 22 5 22 8 C22 12 19 15 12 21 Z";
     out property <string> note: "M9 18 C9 20 7.5 21 6 21 C4.5 21 3 20 3 18.5 C3 17 4.5 16 6 16 C6.4 16 6.7 16 7 16.2 V5 L20 3 V16 C20 18 18.5 19 17 19 C15.5 19 14 18 14 16.5 C14 15 15.5 14 17 14 C17.4 14 17.7 14 18 14.2 V7 L9 8.4 Z";
+    out property <string> person: "M12 3 A4.5 4.5 0 1 0 12 12 A4.5 4.5 0 1 0 12 3 Z M4 21 C4 16.5 7.5 14 12 14 C16.5 14 20 16.5 20 21 Z";
     out property <string> speaker: "M3 9 H7 L12 4.5 V19.5 L7 15 H3 Z M15 8 C17 10 17 14 15 16 L14 15 C15.5 13.5 15.5 10.5 14 9 Z";
 }
 
@@ -250,9 +256,25 @@ component TrackItem inherits Row {
     property <bool> playing: root.track.id != "" && root.track.id == Bridge.now-id;
 
     HorizontalLayout {
-        padding-left: 16px;
+        padding-left: 12px;
         padding-right: 4px;
-        spacing: 8px;
+        spacing: 10px;
+
+        Rectangle {
+            y: (Theme.row - 44px) / 2;
+            width: 44px;
+            height: 44px;
+            border-radius: 4px;
+            clip: true;
+            background: Theme.raised;
+
+            if root.track.has-cover: Image {
+                width: 100%;
+                height: 100%;
+                source: root.track.cover;
+                image-fit: cover;
+            }
+        }
 
         VerticalLayout {
             alignment: center;
@@ -416,9 +438,20 @@ component HomePage {
 
             HorizontalLayout {
                 padding-left: 16px;
-                padding-right: 16px;
+                padding-right: 6px;
                 padding-bottom: 8px;
                 PageTitle { text: Bridge.greeting; }
+
+                IconButton {
+                    height: 40px;
+                    icon: Icons.person;
+                    tint: Theme.muted;
+                    clicked => {
+                        Bridge.sheet-title = "Log out of Spotify on this iPhone?";
+                        Bridge.sheet-account = true;
+                        Bridge.sheet-open = true;
+                    }
+                }
             }
 
             TileRow {
@@ -478,6 +511,8 @@ component LibraryPage {
     }
 
     ListView {
+        // Off by default, which leaves only a mouse wheel to scroll with.
+        mouse-drag-pan-enabled: true;
         x: 0;
         y: Theme.status-bar + 62px;
         width: root.width;
@@ -550,6 +585,8 @@ component SearchPage {
     }
 
     ListView {
+        // Off by default, which leaves only a mouse wheel to scroll with.
+        mouse-drag-pan-enabled: true;
         x: 0;
         y: Theme.status-bar + 114px;
         width: root.width;
@@ -583,7 +620,7 @@ component TracksPage {
     Text {
         x: 56px;
         y: Theme.status-bar + 4px;
-        width: parent.width - 72px - (Bridge.tracks-loading ? 52px : 0);
+        width: parent.width - 116px - (Bridge.tracks-loading ? 52px : 0);
         height: 48px;
         vertical-alignment: center;
         text: Bridge.tracks-title;
@@ -594,12 +631,33 @@ component TracksPage {
     }
 
     if Bridge.tracks-loading: Dots {
-        x: parent.width - 58px;
+        x: parent.width - 104px;
         y: Theme.status-bar + 23px;
         tint: Theme.muted;
     }
 
+    if Bridge.tracks.length > 0: Rectangle {
+        x: parent.width - 52px;
+        y: Theme.status-bar + 8px;
+        width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        background: play-all.pressed ? #17a84b : Theme.green;
+
+        Icon {
+            width: 20px;
+            height: 20px;
+            icon: Icons.play;
+            tint: #000000;
+        }
+
+        play-all := TouchArea {
+            clicked => { Bridge.action("play-track", 0, "tracks"); }
+        }
+    }
+
     list := ListView {
+        mouse-drag-pan-enabled: true;
         x: 0;
         y: Theme.status-bar + 52px;
         width: root.width;
@@ -1084,7 +1142,9 @@ component NowPlaying {
 
 // What the + / ✓ button offers once a track is liked.
 component ActionSheet {
-    property <length> panel-height: 200px;
+    property <[string]> options: Bridge.sheet-account ? ["Log Out", "Cancel"] : ["Add to Playlist", "Remove from Liked Songs", "Cancel"];
+    property <int> destructive: Bridge.sheet-account ? 0 : 1;
+    property <length> panel-height: 68px + root.options.length * 48px;
     property <bool> open: Bridge.sheet-open;
 
     Rectangle {
@@ -1123,14 +1183,14 @@ component ActionSheet {
                 overflow: elide;
             }
 
-            for option[index] in ["Add to Playlist", "Remove from Liked Songs", "Cancel"]: Rectangle {
+            for option[index] in root.options: Rectangle {
                 height: 46px;
                 border-radius: 10px;
                 background: option-touch.pressed ? Theme.pressed : transparent;
 
                 Text {
                     text: option;
-                    color: index == 1 ? #ff5c5c : Theme.text;
+                    color: index == root.destructive ? #ff5c5c : Theme.text;
                     font-size: 16px;
                     font-weight: 600;
                 }
@@ -1138,7 +1198,13 @@ component ActionSheet {
                 option-touch := TouchArea {
                     clicked => {
                         Bridge.sheet-open = false;
-                        if (index == 0) {
+                        if (Bridge.sheet-account) {
+                            if (index == 0) {
+                                Bridge.tracks-open = false;
+                                Bridge.now-open = false;
+                                Bridge.action("log-out", 0, "");
+                            }
+                        } else if (index == 0) {
                             Bridge.action("sheet-add", 0, "");
                         } else if (index == 1) {
                             Bridge.action("sheet-remove", 0, "");
@@ -1187,6 +1253,8 @@ component PlaylistPicker {
     }
 
     ListView {
+        // Off by default, which leaves only a mouse wheel to scroll with.
+        mouse-drag-pan-enabled: true;
         x: 0;
         y: Theme.status-bar + 52px;
         width: root.width;

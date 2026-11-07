@@ -8,6 +8,7 @@
 
 #import "FMAppDelegate.h"
 #import "FMPlayer.h"
+#import "FMSpotifyLibrary.h"
 #ifdef FM_IOS4
 #import "FMiOS4Interface.h"
 #else
@@ -598,6 +599,15 @@ static NSString *FMWiFiAddress(void)
 {
 #ifdef FM_LIBRESPOT
     fm_webapi_login_stop();
+#endif
+}
+
+- (void)logOut
+{
+#ifdef FM_LIBRESPOT
+    fm_librespot_logout();
+    [[FMSpotifyLibrary sharedLibrary] logOutOfWebAPI];
+    [self updateLibrespotPairing];
 #endif
 }
 

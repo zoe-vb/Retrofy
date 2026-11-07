@@ -23,6 +23,10 @@
         NSDictionary *image = [images isKindOfClass:[NSArray class]] && [images count] ? [images objectAtIndex:0] : nil;
         NSString *imageURL = [image isKindOfClass:[NSDictionary class]] ? [image objectForKey:@"url"] : nil;
         if ([imageURL isKindOfClass:[NSString class]]) [self setImageURL:[NSURL URLWithString:imageURL]];
+        // Biggest first.
+        NSDictionary *thumbnail = [images isKindOfClass:[NSArray class]] ? [images lastObject] : nil;
+        NSString *thumbnailURL = [thumbnail isKindOfClass:[NSDictionary class]] ? [thumbnail objectForKey:@"url"] : nil;
+        if ([thumbnailURL isKindOfClass:[NSString class]]) [self setThumbnailURL:[NSURL URLWithString:thumbnailURL]];
     }
     return self;
 }

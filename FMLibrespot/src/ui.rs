@@ -153,6 +153,9 @@ struct Session {
     picker: Rc<VecModel<Tile>>,
     tracks: Rc<VecModel<TrackRow>>,
     search: Rc<VecModel<TrackRow>>,
+    // Rows of `tracks` and `search` waiting for a cover, or showing it, by cover key.
+    track_covers: RefCell<HashMap<String, Vec<usize>>>,
+    search_covers: RefCell<HashMap<String, Vec<usize>>>,
     toast_timer: slint::Timer,
 }
 
@@ -199,6 +202,23 @@ impl Session {
         }
     }
 
+    fn track_row(&self, value: &Value, index: usize, covers: &RefCell<HashMap<String, Vec<usize>>>) -> TrackRow {
+        let cover_key = text(value, "cover");
+        if !cover_key.is_empty() {
+            covers.borrow_mut().entry(cover_key.to_string()).or_default().push(index);
+        }
+        let image = self.images.borrow().get(cover_key.as_str()).cloned();
+        TrackRow {
+            id: text(value, "id"),
+            title: text(value, "title"),
+            subtitle: text(value, "subtitle"),
+            saved: value["saved"].as_i64().unwrap_or(-1) as i32,
+            cover_key,
+            has_cover: image.is_some(),
+            cover: image.unwrap_or_default(),
+        }
+    }
+
     fn tiles(&self, values: &[Value]) -> Vec<Tile> {
         values.iter().map(|value| self.tile(value)).collect()
     }
@@ -221,6 +241,16 @@ impl Session {
                 }
             }
         };
+        let show_rows = |model: &VecModel<TrackRow>, rows: &RefCell<HashMap<String, Vec<usize>>>| {
+            for &row in rows.borrow().get(key).map(Vec::as_slice).unwrap_or(&[]) {
+                let Some(mut track) = model.row_data(row) else { continue };
+                track.cover = image.clone();
+                track.has_cover = true;
+                model.set_row_data(row, track);
+            }
+        };
+        show_rows(&self.tracks, &self.track_covers);
+        show_rows(&self.search, &self.search_covers);
         show(&self.library);
         show(&self.picker);
         for shelf in self.shelves.borrow().iter() {
@@ -260,16 +290,21 @@ impl Session {
             "tracks" => {
                 if boolean(value, "reset") {
                     self.tracks.set_vec(Vec::new());
+                    self.track_covers.borrow_mut().clear();
                     bridge.set_tracks_title(text(value, "title"));
                     bridge.set_tracks_open(true);
                 }
                 for row in items(value, "items") {
-                    self.tracks.push(track_row(row));
+                    let row = self.track_row(row, self.tracks.row_count(), &self.track_covers);
+                    self.tracks.push(row);
                 }
                 bridge.set_tracks_loading(boolean(value, "loading"));
             }
             "search" => {
-                self.search.set_vec(items(value, "items").iter().map(track_row).collect::<Vec<_>>());
+                self.search_covers.borrow_mut().clear();
+                let rows = items(value, "items").iter().enumerate();
+                let rows = rows.map(|(index, row)| self.track_row(row, index, &self.search_covers));
+                self.search.set_vec(rows.collect::<Vec<_>>());
                 bridge.set_search_status(text(value, "status"));
             }
             "search-field" => {
@@ -320,6 +355,7 @@ impl Session {
             }
             "sheet" => {
                 bridge.set_sheet_title(text(value, "title"));
+                bridge.set_sheet_account(false);
                 bridge.set_sheet_open(true);
             }
             "toast" => {
@@ -334,15 +370,6 @@ impl Session {
             }
             _ => log(&format!("Unknown UI update {kind}")),
         }
-    }
-}
-
-fn track_row(value: &Value) -> TrackRow {
-    TrackRow {
-        id: text(value, "id"),
-        title: text(value, "title"),
-        subtitle: text(value, "subtitle"),
-        saved: value["saved"].as_i64().unwrap_or(-1) as i32,
     }
 }
 
@@ -362,6 +389,8 @@ fn start(width: u32, height: u32, scale: f32, present: extern "C" fn(), action: 
         picker: Rc::default(),
         tracks: Rc::default(),
         search: Rc::default(),
+        track_covers: RefCell::default(),
+        search_covers: RefCell::default(),
         toast_timer: slint::Timer::default(),
     };
 

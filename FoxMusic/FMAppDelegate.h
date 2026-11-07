@@ -106,6 +106,8 @@ typedef enum {
 // e.g. http://192.168.1.238:8080. Posts FMWebAPIDidLogInNotification once logged in.
 - (NSString *)startWebAPILoginWithError:(NSError **)error;
 - (void)stopWebAPILogin;
+// Forgets both logins, and announces Retrofy again for the next Spotify Connect login.
+- (void)logOut;
 - (void)librespotPause;
 - (void)librespotResume;
 - (void)librespotRewind;
