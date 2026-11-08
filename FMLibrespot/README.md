@@ -16,10 +16,21 @@ The login and the device ID live in `Library/librespot` (`/var/mobile/Library/li
 ## Building the library (modern Mac)
 
 ```sh
-FMLibrespot/build-ios6.sh
+IOS6_SDK=/path/to/iPhoneOS6.1.sdk FMLibrespot/build-ios6.sh
 ```
 
-Produces `FMLibrespot/build/libfmlibrespot.a`. Needs rustup with nightly and `rust-src`.
+Needs a modern Xcode toolchain, the iPhoneOS 6 SDK, rustup with nightly and `rust-src`,
+Python 3, CMake and Ninja. The script produces `libfmlibrespot.a`, `libplayplay-client.a`
+and `PlayPlayDecoder` under `FMLibrespot/build/`.
+
+The build pins the [Spotiya v0.9.3 PlayPlay add-on](https://github.com/klockky/spotiya/releases/tag/v0.9.3)
+and the [Unicorn source revision](https://github.com/unicorn-engine/unicorn/tree/8028ec436f2d9376525352dd38ed9ed6b9f6be10).
+The archives and generated decoder resources are cached under `FMLibrespot/build/playplay/`.
+Spotiya's wrapper and its license are in `FMLibrespot/playplay/`. The guest image comes from
+Spotify for Android and has separate provenance documented in Spotiya's release.
+
+With `PLAYPLAY_TEST=1` set when running this script, streamed tracks use PlayPlay v5 directly.
+Without the flag, FoxMusic tries legacy first and requests PlayPlay only on an explicit refusal.
 
 How it gets around Rust not supporting iOS 6:
 
@@ -62,13 +73,9 @@ Copy `RetrofyTest.app` to `/Applications` on a jailbroken device and run `uicach
 
 ## Building Retrofy with it (old Xcode)
 
-Copy `libfmlibrespot.a` to `FMLibrespot/build/` on the build machine, then add these to the `xcodebuild` command line:
-
-```
-GCC_PREPROCESSOR_DEFINITIONS='$(inherited) FM_LIBRESPOT=1'
-HEADER_SEARCH_PATHS='$(inherited) $(SRCROOT)/FMLibrespot'
-OTHER_LDFLAGS='$(inherited) -L$(SRCROOT)/FMLibrespot/build -lfmlibrespot -framework AudioToolbox'
-ARCHS="armv7 armv7s" VALID_ARCHS="armv7 armv7s" ONLY_ACTIVE_ARCH=NO
-```
+Copy the three build outputs to `FMLibrespot/build/` on the old Xcode machine and run
+`./build.sh` from the repository root. It links both ARM slices and copies and signs the
+ARMv7 decoder in `build/Release-iphoneos/FoxMusic.app`.
+Use `FM_SIGN=0 ./build.sh` if you sign the app and helper on a separate machine.
 
 If linking fails with an undefined symbol, that function is missing on iOS 6 and needs a replacement in `src/compat.rs`.

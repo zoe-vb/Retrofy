@@ -47,3 +47,4 @@ ring = { path = "patches/ring" }
 dns-sd = { path = "patches/dns-sd" }
 # Spotify rejects librespot's iOS identity with TryAnotherAP. See patches/README.md.
 librespot-core = { path = "patches/librespot-core" }
+librespot-playback = { path = "patches/librespot-playback" }

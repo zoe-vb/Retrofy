@@ -87,7 +87,10 @@ impl AudioKeyManager {
             seq
         });
 
-        self.send_key_request(seq, track, file)?;
+        if let Err(error) = self.send_key_request(seq, track, file) {
+            self.lock(|inner| inner.pending.remove(&seq));
+            return Err(error);
+        }
         // FoxMusic: was 1.5 s. On an iPhone 5 the access point's answer regularly takes ~3 s, and the
         // player then gives up on decryption and the track can't be played.
         const KEY_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -97,7 +100,8 @@ impl AudioKeyManager {
                 error!("Audio key response timeout");
                 Err(AudioKeyError::Timeout.into())
             }
-            Ok(k) => k?,
+            Ok(Ok(key)) => key,
+            Ok(Err(_)) => Err(AudioKeyError::Channel.into()),
         }
     }
 

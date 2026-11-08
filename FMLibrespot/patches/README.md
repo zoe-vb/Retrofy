@@ -1,6 +1,6 @@
 # Vendored crate patches
 
-All four are used through `[patch.crates-io]` in `../Cargo.toml`. Everything else is upstream.
+These crates are used through `[patch.crates-io]` in `../Cargo.toml`. Other crates come from upstream.
 
 ## sysinfo 0.36.1
 
@@ -54,3 +54,11 @@ logs in as Linux ARM with librespot's usual desktop (keymaster) client ID.
 often arrives after about 3 seconds. When the wait times out, the player continues without decryption and
 the track can't be decoded. A key that arrives too late was logged as "could not dispatch command:
 ... other end of channel disconnected". The pending request is now removed when it times out.
+
+`src/playplay.rs` requests a PlayPlay v5 license and reads decrypted audio from the bundled helper.
+
+## librespot-playback 0.8.0
+
+`src/player.rs` uses PlayPlay v5 on 32-bit iOS when Spotify explicitly refuses the legacy audio key.
+Successful legacy requests still use AES-CTR. On a build made with `PLAYPLAY_TEST=1`, the player
+requests PlayPlay v5 directly for remote tracks.
