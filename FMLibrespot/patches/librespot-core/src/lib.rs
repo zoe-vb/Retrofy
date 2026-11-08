@@ -25,6 +25,8 @@ pub mod file_id;
 pub mod http_client;
 pub mod login5;
 pub mod mercury;
+#[cfg(all(target_os = "ios", target_arch = "arm"))]
+pub mod playplay;
 pub mod packet;
 mod proxytunnel;
 pub mod session;

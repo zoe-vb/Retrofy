@@ -2,9 +2,12 @@
 # Builds libfmlibrespot.a for iOS 6 as a universal library: armv7 (iPhone 3GS, 4 and 4S, iPad 2 and 3)
 # and armv7s (iPhone 5, iPad 4).
 # Needs rustup with the nightly toolchain and rust-src: rustup component add rust-src --toolchain nightly
+# PLAYPLAY_TEST=1 forces PlayPlay v5 for streamed Spotify tracks.
 set -e
 cd "$(dirname "$0")"
 export PATH="$HOME/.cargo/bin:$PATH"
+
+sh playplay/build-ios6.sh
 
 # rustc clamps the version stamped into the objects to iOS 10 and warns about it, that's expected.
 # Anything std needs from iOS 10+ is provided by src/compat.rs.

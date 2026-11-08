@@ -1,0 +1,237 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,7 +32,7 @@
+ 
+ # Source: https://github.com/capstone-engine/capstone/blob/next/CMakeLists.txt
+ # If building for OSX it's best to allow CMake to handle building both architectures
+-if(APPLE)
++if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+     # The cibuildwheel on Github Actions sets this env variable
+     # with the architecture flags it wants to build for.
+     if(DEFINED ENV{ARCHFLAGS})
+@@ -226,7 +226,9 @@
+             string(FIND "${UC_COMPILER_MACRO}" "__arm__" UC_RET)
+             if(${UC_RET} GREATER_EQUAL "0")
+                 set(UNICORN_TARGET_ARCH "arm")
+-                set(ATOMIC_LINKAGE_FIX TRUE)
++                if(NOT APPLE)
++                    set(ATOMIC_LINKAGE_FIX TRUE)
++                endif()
+                 break()
+             endif()
+             string(FIND "${UC_COMPILER_MACRO}" "__aarch64__" UC_RET)
+@@ -376,6 +378,7 @@
+     # )
+     execute_process(COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/qemu/configure
+         --cc=${CMAKE_C_COMPILER}
++        --cpu=arm
+         ${EXTRA_CFLAGS}
+         ${TARGET_LIST}
+         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+--- a/qemu/configure
++++ b/qemu/configure
+@@ -1078,17 +1078,6 @@
+   QEMU_CFLAGS="$QEMU_CFLAGS -Wno-missing-braces"
+ fi
+ 
+-# Unconditional check for compiler __thread support
+-  cat > $TMPC << EOF
+-static __thread int tls_var;
+-int main(void) { return tls_var; }
+-EOF
+-
+-if ! compile_prog "-Werror" "" ; then
+-    error_exit "Your compiler does not support the __thread specifier for " \
+-	"Thread-Local Storage (TLS). Please upgrade to a version that does."
+-fi
+-
+ cat > $TMPC << EOF
+ 
+ #ifdef __linux__
+--- a/qemu/util/guest-random.c
++++ b/qemu/util/guest-random.c
+@@ -20,7 +20,19 @@
+ #include <stdint.h>
+ 
+ #ifndef _MSC_VER
+-static __thread GRand *thread_rand;
++#include <pthread.h>
++static pthread_key_t rand_key;
++static pthread_once_t rand_once = PTHREAD_ONCE_INIT;
++static void rand_destroy(void *value) { g_free(value); }
++static void rand_initialize(void) { if (pthread_key_create(&rand_key, rand_destroy)) abort(); }
++static GRand *thread_rand_get(void) {
++    pthread_once(&rand_once, rand_initialize);
++    return pthread_getspecific(rand_key);
++}
++static void thread_rand_set(GRand *value) {
++    pthread_once(&rand_once, rand_initialize);
++    if (pthread_setspecific(rand_key, value)) abort();
++}
+ #else
+ static bool initialized = false;
+ #endif
+@@ -29,13 +41,14 @@
+ static int glib_random_bytes(void *buf, size_t len)
+ {
+ #ifndef _MSC_VER
+-    GRand *rand = thread_rand;
++    GRand *rand = thread_rand_get();
+     size_t i;
+     uint32_t x;
+ 
+     if (unlikely(rand == NULL)) {
+         /* Thread not initialized for a cpu, or main w/o -seed.  */
+-        thread_rand = rand = g_rand_new();
++        rand = g_rand_new();
++        thread_rand_set(rand);
+     }
+ 
+     for (i = 0; i + 4 <= len; i += 4) {
+@@ -44,7 +57,7 @@
+     }
+     if (i < len) {
+         x = g_rand_int(rand);
+-        __builtin_memcpy(buf + i, &x, i - len);
++        __builtin_memcpy(buf + i, &x, len - i);
+     }
+ #else
+     uint32_t x;
+@@ -63,7 +76,7 @@
+         }
+         if (i < len) {
+             x = rand();
+-            memcpy(((uint8_t*)buf) + i, &x, i - len);
++            memcpy(((uint8_t*)buf) + i, &x, len - i);
+         }
+     }
+ #endif
+@@ -93,11 +106,10 @@
+ void qemu_guest_random_seed_thread_part2(uint64_t seed)
+ {
+ #ifndef _MSC_VER
+-    g_assert(thread_rand == NULL);
++    g_assert(thread_rand_get() == NULL);
+     if (deterministic) {
+-        thread_rand =
+-            g_rand_new_with_seed_array((const guint32 *)&seed,
+-                                       sizeof(seed) / sizeof(guint32));
++        thread_rand_set(g_rand_new_with_seed_array((const guint32 *)&seed,
++                                       sizeof(seed) / sizeof(guint32)));
+     }
+ #endif
+ }
+--- a/qemu/util/cacheinfo.c
++++ b/qemu/util/cacheinfo.c
+@@ -67,11 +67,16 @@
+ static void sys_cache_info(int *isize, int *dsize)
+ {
+     /* There's only a single sysctl for both I/D cache line sizes.  */
+-    long size;
++    long size = 0;
+     size_t len = sizeof(size);
+-    if (!sysctlbyname("hw.cachelinesize", &size, &len, NULL, 0)) {
+-        *isize = *dsize = size;
++    if (!sysctlbyname("hw.cachelinesize", &size, &len, NULL, 0) &&
++        len == sizeof(size) && size > 0 && size <= 1024 &&
++        (size & (size - 1)) == 0) {
++        *isize = *dsize = (int)size;
+     }
++    /* Leave both sizes unset if an older kernel returns an invalid value.
++       fallback_cache_info() provides a power-of-two alignment. Darwin's
++       sys_icache_invalidate() handles the actual hardware cache lines. */
+ }
+ #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+ # include <sys/sysctl.h>
+--- a/glib_compat/gtestutils.c
++++ b/glib_compat/gtestutils.c
+@@ -19,16 +19,16 @@
+ #include "gtestutils.h"
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <syslog.h>
+ 
+ void
+ g_assertion_message_expr (const char     *file,
+                           int             line,
+                           const char     *expr)
+ {
+-  if (!expr)
+-    printf("%s:%d code should not be reached", file, line);
+-  else
+-    printf("%s:%d assertion failed: %s", file, line, expr);
+-
++  const char *name = file;
++  for (const char *p = file; *p; ++p)
++    if (*p == '/') name = p + 1;
++  syslog(LOG_ERR, "Unicorn %s:%d: %s", name, line, expr ? expr : "unreachable code");
+   abort();
+ }
+--- a/qemu/include/tcg/tcg.h
++++ b/qemu/include/tcg/tcg.h
+@@ -1153,15 +1153,15 @@
+     const char *args_ct_str[TCG_MAX_OP_ARGS];
+ } TCGTargetOpDef;
+ 
+-#ifndef NDEBUG
++#include <syslog.h>
+ #define tcg_abort() \
+ do {\
+-    fprintf(stderr, "%s:%d: tcg fatal error\n", __FILE__, __LINE__);\
++    const char *name = __FILE__;\
++    for (const char *p = __FILE__; *p; ++p)\
++        if (*p == '/') name = p + 1;\
++    syslog(LOG_ERR, "Unicorn TCG %s:%d: fatal error", name, __LINE__);\
+     abort();\
+ } while (0)
+-#else
+-#define tcg_abort() abort()
+-#endif
+ 
+ bool tcg_op_supported(TCGOpcode op);
+ 
+--- a/qemu/tcg/arm/tcg-target.h
++++ b/qemu/tcg/arm/tcg-target.h
+@@ -90,7 +90,11 @@
+ /* used for function call generation */
+ #define TCG_REG_CALL_STACK		TCG_REG_R13
+ #define TCG_TARGET_STACK_ALIGN		8
++/* Apple’s 32-bit iOS ABI packs 64-bit arguments into consecutive words
++ * without the even-register alignment used by AAPCS on Linux. */
++#if !defined(__APPLE__) || !defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
+ #define TCG_TARGET_CALL_ALIGN_ARGS	1
++#endif
+ #define TCG_TARGET_CALL_STACK_OFFSET	0
+ 
+ /* optional instructions */
+--- a/qemu/tcg/arm/tcg-target.inc.c
++++ b/qemu/tcg/arm/tcg-target.inc.c
+@@ -1201,13 +1201,13 @@
+ static TCGReg tcg_out_arg_reg64(TCGContext *s, TCGReg argreg,
+                                 TCGReg arglo, TCGReg arghi)
+ {
+-    /* 64 bit arguments must go in even/odd register pairs
+-     * and in 8-aligned stack slots.
+-     */
++#ifdef TCG_TARGET_CALL_ALIGN_ARGS
++    /* Apply the same ABI as the generic helper-call generator. */
+     if (argreg & 1) {
+         argreg++;
+     }
+-    if (use_armv6_instructions && argreg >= 4
++#endif
++    if (use_armv6_instructions && argreg >= 4 && (argreg & 1) == 0
+         && (arglo & 1) == 0 && arghi == arglo + 1) {
+         tcg_out_strd_8(s, COND_AL, arglo,
+                        TCG_REG_CALL_STACK, (argreg - 4) * 4);
+@@ -2229,6 +2229,10 @@
+     tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R1);
+     tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R2);
+     tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R3);
++#if defined(__APPLE__) && defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__)
++    /* Darwin ARMv7 helpers may clobber r9, including MMU slow paths. */
++    tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R9);
++#endif
+     tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R12);
+     tcg_regset_set_reg(s->tcg_target_call_clobber_regs, TCG_REG_R14);
+ 
